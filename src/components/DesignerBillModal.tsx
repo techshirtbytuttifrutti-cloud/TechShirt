@@ -23,41 +23,38 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
   if (!billingDoc) return null;
   const breakdown = billingDoc.breakdown;
 
-  // Get final amount
-  const displayTotal = billingDoc?.starting_amount ?? breakdown.total;
-  const getFinalTotal = () => {
-    if (!billingDoc.final_amount || billingDoc.final_amount === 0) {
-      return displayTotal;
-    }
-    return billingDoc.final_amount;
-  };
-  const finalTotal = getFinalTotal();
+  // Original total including add-ons safely (undefined → 0)
+  const originalTotal =
+    (billingDoc.starting_amount ?? breakdown.total) +
+    (billingDoc.addons_fee ?? 0);
 
   // Latest negotiation entry
- // Latest negotiation entry
   const latestNegotiation =
-    billingDoc.negotiation_history &&
-    billingDoc.negotiation_history[billingDoc.negotiation_history.length - 1];
+    billingDoc.negotiation_history?.[
+      billingDoc.negotiation_history.length - 1
+    ];
 
-
-  
+  // Compute final total after discount, show discount only if approved
+  const finalTotal =
+    latestNegotiation && billingDoc.status?.toLowerCase() === "approved"
+      ? originalTotal - latestNegotiation.amount
+      : originalTotal;
 
   const saveFinalAmount = useMutation(api.billing.UpdateFinalAmount);
-    const handleSaveFinalAmount = async () => {
-      if (!billingDoc?._id) return;
+  const handleSaveFinalAmount = async () => {
+    if (!billingDoc?._id) return;
 
-      try {
-        await saveFinalAmount({
-          billingId: billingDoc._id,
-          finalAmount: Number(finalAmount), // convert string → number
-        });
-        console.log("Final amount saved:", finalAmount);
-        setIsNegotiationOpen(false);
-      } catch (err) {
-        console.error("Error saving final amount:", err);
-      }
-    };
 
+    try {
+      await saveFinalAmount({
+        billingId: billingDoc._id,
+        finalAmount: Number(finalAmount),
+      });
+      setIsNegotiationOpen(false);
+    } catch (err) {
+      console.error("Error saving final amount:", err);
+    }
+  };
 
   return (
     <>
@@ -77,9 +74,7 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
           <div className="flex justify-between items-center mb-6">
             <div>
               <h3 className="text-2xl font-bold text-gray-800">Invoice</h3>
-              <p className="text-sm text-gray-500">
-                Invoice No. #{billingDoc._id}
-              </p>
+              <p className="text-sm text-gray-500">Invoice No. #{billingDoc._id}</p>
               <p className="text-sm text-gray-500">
                 {new Date(billingDoc._creationTime).toLocaleDateString()}
               </p>
@@ -96,11 +91,7 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
           {/* Client Info */}
           <div className="mb-6 text-gray-700 text-sm">
             <h4 className="font-bold mb-1">Client Info</h4>
-            <p>
-              {clientInfo
-                ? `${clientInfo.firstName} ${clientInfo.lastName}`
-                : "Client Name"}
-            </p>
+            <p>{clientInfo ? `${clientInfo.firstName} ${clientInfo.lastName}` : "Client Name"}</p>
             <p>{clientInfo?.phone || "No contact number"}</p>
             <p>{clientInfo?.address || "No address"}</p>
           </div>
@@ -121,32 +112,23 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
                 <td className="px-3 py-2 text-center">{breakdown.shirtCount}</td>
                 <td className="px-3 py-2 text-center">₱{breakdown.printFee}</td>
                 <td className="px-3 py-2 text-right">
-                  ₱
-                  {(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
+                  ₱{(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
                 </td>
               </tr>
               {breakdown.revisionFee > 0 && (
                 <tr className="border-t">
                   <td className="px-3 py-2">Revision Fee</td>
                   <td className="px-3 py-2 text-center">-</td>
-                  <td className="px-3 py-2 text-center">
-                    ₱{breakdown.revisionFee}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    ₱{breakdown.revisionFee}
-                  </td>
+                  <td className="px-3 py-2 text-center">₱{breakdown.revisionFee}</td>
+                  <td className="px-3 py-2 text-right">₱{breakdown.revisionFee}</td>
                 </tr>
               )}
               {breakdown.designerFee > 0 && (
                 <tr className="border-t">
                   <td className="px-3 py-2">Designer Fee</td>
                   <td className="px-3 py-2 text-center">-</td>
-                  <td className="px-3 py-2 text-center">
-                    ₱{breakdown.designerFee}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    ₱{breakdown.designerFee}
-                  </td>
+                  <td className="px-3 py-2 text-center">₱{breakdown.designerFee}</td>
+                  <td className="px-3 py-2 text-right">₱{breakdown.designerFee}</td>
                 </tr>
               )}
             </tbody>
@@ -157,24 +139,25 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
             <div className="w-1/3 space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="font-medium">Subtotal:</span>
-                <span>₱{displayTotal.toLocaleString()}</span>
+                <span>₱{originalTotal.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Tax/VAT (12%):</span>
-                <span>₱{(displayTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>₱{(originalTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between border-t pt-2">
                 <span>Total:</span>
-                <span>₱{displayTotal.toLocaleString()}</span>
+                <span>₱{originalTotal.toLocaleString()}</span>
               </div>
-              {finalTotal < displayTotal && (
+              {/* Show discount only if approved */}
+              {latestNegotiation && billingDoc.status?.toLowerCase() === "approved" && (
                 <div className="flex justify-between text-green-600">
                   <span>Client Discount:</span>
-                  <span>-₱{(displayTotal - finalTotal).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  <span>-₱{latestNegotiation.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                 </div>
               )}
               <div className="flex justify-between font-semibold border-t pt-2">
-                <span>Final Negotiated Price:</span>
+                <span>Final Price:</span>
                 <span>₱{finalTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
             </div>
@@ -184,13 +167,10 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
           <div className="mt-4 p-3 rounded-lg bg-gray-50 border text-sm text-gray-700 flex justify-between items-center">
             <div>
               <span className="font-medium">Bill Status:</span>{" "}
-              <span className="text-blue-600 font-semibold">
-                {billingDoc.status || "Pending"}
-              </span>
+              <span className="text-blue-600 font-semibold">{billingDoc.status || "Pending"}</span>
             </div>
 
-            {(!billingDoc.status ||
-              billingDoc.status.toLowerCase() === "pending") && (
+            {(!billingDoc.status || billingDoc.status.toLowerCase() === "pending") && (
               <button
                 onClick={() => setIsNegotiationOpen(true)}
                 className="ml-4 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
@@ -217,9 +197,7 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
             exit={{ scale: 0.9 }}
           >
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800">
-                Negotiation Details
-              </h3>
+              <h3 className="text-lg font-bold text-gray-800">Negotiation Details</h3>
               <button
                 aria-label="Close"
                 onClick={() => setIsNegotiationOpen(false)}
@@ -229,26 +207,19 @@ const DesignerBillModal: React.FC<DesignerBillModalProps> = ({
               </button>
             </div>
 
-            {/* Starting amount */}
             <p className="text-sm mb-2">
-              <span className="font-semibold">Starting Amount:</span> ₱
-              {breakdown.total.toLocaleString()}
+              <span className="font-semibold">Starting Amount:</span> ₱{originalTotal.toLocaleString()}
             </p>
 
-            {/* Latest negotiation */}
             {latestNegotiation ? (
               <p className="text-sm mb-4">
-                <span className="font-semibold">Latest:</span> ₱
-                {latestNegotiation.amount} on{" "}
+                <span className="font-semibold">Latest Discount:</span> ₱{latestNegotiation.amount.toLocaleString()} on{" "}
                 {new Date(latestNegotiation.date).toLocaleDateString()}
               </p>
             ) : (
-              <p className="text-sm mb-4 text-gray-500">
-                No negotiation history yet.
-              </p>
+              <p className="text-sm mb-4 text-gray-500">No negotiation history yet.</p>
             )}
 
-            {/* Input field */}
             <input
               type="number"
               value={finalAmount}

@@ -45,11 +45,15 @@ export const approveBill = mutation({
       throw new Error("No billing record found for this design");
     }
 
+    // --- Include approved add-ons ---
+    const addonsShirtPrice = billingDoc.addons_shirt_price || 0;
+    const addonsFee = billingDoc.addons_fee || 0;
+
     // --- Determine final amount ---
     const finalAmount =
-      billingDoc.final_amount && billingDoc.final_amount > 0
+      (billingDoc.final_amount && billingDoc.final_amount > 0
         ? billingDoc.final_amount
-        : billingDoc.starting_amount;
+        : billingDoc.starting_amount || 0) + addonsShirtPrice + addonsFee;
 
     // --- Update billing status and amount ---
     await ctx.db.patch(billingDoc._id, {
@@ -165,18 +169,25 @@ export const submitNegotiation = mutation({
 
     // Who’s negotiating
     const identity = await ctx.auth.getUserIdentity();
-   const userDoc = identity
-    ? await ctx.db
-        .query("users")
-        .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-        .first()
-    : null;
+    const userDoc = identity
+      ? await ctx.db
+          .query("users")
+          .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+          .first()
+      : null;
 
+    // Calculate the discount / delta
+    const originalTotal =
+      (billing.starting_amount ?? 0) +
+      (billing.addons_shirt_price ?? 0) +
+      (billing.addons_fee ?? 0);
+
+    const discountAmount = originalTotal - newAmount;
 
     const newEntry = {
-      amount: newAmount,
+      amount: discountAmount, // store the difference, not newAmount
       date: Date.now(),
-      added_by: userDoc?._id, // 👈 correct schema field
+      added_by: userDoc?._id,
     };
 
     const updatedHistory = billing.negotiation_history
@@ -193,6 +204,7 @@ export const submitNegotiation = mutation({
     return { success: true, negotiation: newEntry };
   },
 });
+
 
 export const UpdateFinalAmount = mutation({
   args: { billingId: v.id("billing"), finalAmount: v.number() },

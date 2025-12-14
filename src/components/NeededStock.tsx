@@ -146,16 +146,7 @@ const NeededStockModal: React.FC<NeededStockModalProps> = ({
         </h2>
 
         <p className="text-sm text-gray-600 mb-6">
-          {designRequest?.fabric && (
-            <>
-              Primary Fabric: <span className="font-semibold">{designRequest.fabric.name}</span>
-              {autoYards > 0 && designRequest.fabric.unit && (
-                <span className="ml-2 text-teal-600">
-                  (Auto-calculated: {autoYards} {designRequest.fabric.unit})
-                </span>
-              )}
-            </>
-          )}
+          
           {autoSublimation && (
             <div className="mt-1 text-teal-600">
               Sublimation Paper: {autoSublimation.quantity} pcs ({autoSublimation.itemName})

@@ -20,38 +20,39 @@ interface FinalizeDesignStepProps {
 const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
   const billing = useQuery(api.billing.getBillingByDesign, { designId: design._id });
   const clientInfo = useQuery(api.billing.getClientInfoByDesign, { designId: design._id });
-  const status = design.status;
-  const isApproved = status === "approved";
-  const isFinished =
-    status === "finished" ||
-    status === "in_production" ||
-    status === "pending_pickup" ||
-    status === "completed";
 
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   if (!billing) {
     return (
       <div className="p-4 text-gray-600 text-sm">
-        {isApproved
-          ? "Loading billing details..."
-          : "Billing is locked until your design is approved."}
+        Billing information is loading...
       </div>
     );
   }
 
-  const { breakdown, invoiceNo, createdAt } = billing;
+  const { breakdown, invoiceNo, createdAt, addons_shirt_price = 0, addons_fee = 0, status: billStatus } = billing;
 
-  // ✅ Safely handle add-ons
-  const addonsShirtPrice = billing.addons_shirt_price ?? 0;
-  const addonsFee = billing.addons_fee ?? 0;
+  // Calculate subtotal (printing + revision + designer fees)
+  const displaySubtotal =
+    (breakdown.printFee || 0) +
+    (breakdown.revisionFee || 0) +
+    (breakdown.designerFee || 0);
 
-  const displayTotal = (billing.starting_amount ?? breakdown.total ?? 0) + addonsShirtPrice + addonsFee;
+  // Display total includes add-ons
+  const displayTotal =
+    (billing.starting_amount ?? displaySubtotal) +
+    (addons_shirt_price || 0) +
+    (addons_fee || 0);
 
+  // Final total: prefer final_amount if available
   const finalTotal =
-    !billing.final_amount || billing.final_amount === 0
-      ? displayTotal
-      : billing.final_amount + addonsShirtPrice + addonsFee;
+    billing.final_amount && billing.final_amount > 0
+      ? billing.final_amount + (addons_shirt_price || 0) + (addons_fee || 0)
+      : displayTotal;
+
+  // Client discount
+  const clientDiscount = displayTotal > finalTotal ? displayTotal - finalTotal : 0;
 
   const handleDownloadPDF = async () => {
     const invoice = invoiceRef.current;
@@ -108,19 +109,18 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
       className="p-2 sm:p-6 bg-white rounded-xl shadow-md space-y-3 sm:space-y-6 text-xs sm:text-sm"
       ref={invoiceRef}
     >
-      {isFinished ? (
+      {billStatus === "approved" ? (
+        // Approved Invoice
         <div>
           {/* Header */}
           <div className="flex justify-between items-center">
             <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
-              JCC Textile Printing Services
+              TechShirt Printing Services
             </h2>
             <button
               type="button"
               id="download-btn"
               onClick={handleDownloadPDF}
-              aria-label="Download invoice"
-              title="Download Invoice"
               className="flex items-center justify-center gap-1 sm:gap-2 px-2 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:text-teal-600 transition text-xs sm:text-sm"
             >
               <FileDown size={16} className="sm:w-5 sm:h-5" />
@@ -134,28 +134,17 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
             <div>
               <h4 className="font-bold text-gray-700 mb-1 text-xs sm:text-sm">Billed To:</h4>
               <p className="text-xs sm:text-sm text-gray-700">
-                {clientInfo
-                  ? `${clientInfo.firstName} ${clientInfo.lastName}`
-                  : "Client Name"}
+                {clientInfo ? `${clientInfo.firstName} ${clientInfo.lastName}` : "Client Name"}
               </p>
               <p className="text-xs text-gray-500">{clientInfo?.phone || "No contact number"}</p>
-              <p className="text-xs text-gray-500 line-clamp-2">
-                {clientInfo?.address || "No address provided"}
-              </p>
+              <p className="text-xs text-gray-500 line-clamp-2">{clientInfo?.address || "No address provided"}</p>
             </div>
-
             <div className="sm:text-right">
               <p className="text-xs sm:text-sm font-medium text-gray-700">
-                Invoice No:{" "}
-                <span className="text-gray-900 font-semibold">
-                  #{String(invoiceNo).padStart(4, "0")}
-                </span>
+                Invoice No: <span className="text-gray-900 font-semibold">#{String(invoiceNo).padStart(4, "0")}</span>
               </p>
               <p className="text-xs sm:text-sm text-gray-700">
-                Date:{" "}
-                <span className="text-gray-900">
-                  {new Date(createdAt).toLocaleDateString()}
-                </span>
+                Date: <span className="text-gray-900">{new Date(createdAt).toLocaleDateString()}</span>
               </p>
             </div>
           </div>
@@ -176,9 +165,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
                   <td className="py-1 sm:py-2 px-1 sm:px-3">Printing</td>
                   <td className="text-center">{breakdown.shirtCount}</td>
                   <td className="text-center">₱{breakdown.printFee}</td>
-                  <td className="text-right">
-                    ₱{(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
-                  </td>
+                  <td className="text-right">₱{(breakdown.printFee * breakdown.shirtCount).toLocaleString()}</td>
                 </tr>
                 {breakdown.revisionFee >= 0 && (
                   <tr className="border-t border-gray-200">
@@ -196,29 +183,20 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
                     <td className="text-right">₱{breakdown.designerFee}</td>
                   </tr>
                 )}
-                {/* ✅ Add-ons */}
-                {addonsShirtPrice > 0 && (
+                {addons_shirt_price > 0 && (
                   <tr className="border-t border-gray-200 bg-blue-50">
-                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">
-                      Add-Ons (Shirt/Design)
-                    </td>
+                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">Add-Ons (Shirt/Design)</td>
                     <td className="text-center">-</td>
                     <td className="text-center">-</td>
-                    <td className="text-right font-semibold text-blue-900">
-                      ₱{addonsShirtPrice.toLocaleString()}
-                    </td>
+                    <td className="text-right font-semibold text-blue-900">₱{addons_shirt_price.toLocaleString()}</td>
                   </tr>
                 )}
-                {addonsFee > 0 && (
+                {addons_fee > 0 && (
                   <tr className="border-t border-gray-200 bg-blue-50">
-                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">
-                      Add-Ons Fee
-                    </td>
+                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">Add-Ons Fee</td>
                     <td className="text-center">-</td>
-                    <td className="text-center">₱{addonsFee.toLocaleString()}</td>
-                    <td className="text-right font-semibold text-blue-900">
-                      ₱{addonsFee.toLocaleString()}
-                    </td>
+                    <td className="text-center">₱{addons_fee.toLocaleString()}</td>
+                    <td className="text-right font-semibold text-blue-900">₱{addons_fee.toLocaleString()}</td>
                   </tr>
                 )}
               </tbody>
@@ -234,27 +212,21 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-1">
                 <span>Tax/VAT (12%)</span>
-                <span>
-                  ₱{(displayTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                </span>
+                <span>₱{(displayTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-1">
                 <span>Total</span>
                 <span>₱{displayTotal.toLocaleString()}</span>
               </div>
-              {finalTotal < displayTotal && (
+              {clientDiscount > 0 && (
                 <div className="flex justify-between text-green-600 pb-1">
                   <span>Client Discount</span>
-                  <span>
-                    -₱{(displayTotal - finalTotal).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  </span>
+                  <span>-₱{clientDiscount.toLocaleString()}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-gray-800 text-sm sm:text-lg bg-gray-50 px-2 sm:px-3 py-1 sm:py-2 rounded-md">
                 <span>Final Negotiated Price</span>
-                <span>
-                  ₱{finalTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                </span>
+                <span>₱{displayTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
             </div>
           </div>
@@ -263,40 +235,22 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
           <div className="mt-4 sm:mt-8 text-center text-gray-600 text-xs sm:text-sm border-t pt-2 sm:pt-3">
             <p className="font-medium">Thank you for choosing TechShirt!</p>
             <p className="text-xs text-gray-500">Please keep this invoice for your records.</p>
-            <p className="text-xs font-semibold text-gray-400 mt-1">
-              Techshirt Management System © {new Date().getFullYear()}
-            </p>
+            <p className="text-xs font-semibold text-gray-400 mt-1">Techshirt Management System © {new Date().getFullYear()}</p>
           </div>
         </div>
       ) : (
         // Estimated Bill Breakdown
         <div className="p-4 border rounded-lg shadow-sm bg-gray-50 space-y-2 text-sm text-gray-700">
           <h2 className="text-lg font-semibold mb-2">Estimated Bill Breakdown</h2>
-          <p>
-            <span className="font-medium">Total Shirts:</span> {breakdown.shirtCount}
-          </p>
-          <p>
-            <span className="font-medium">Printing Subtotal:</span> ₱
-            {(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
-          </p>
-          <p>
-            <span className="font-medium">Revision Fee:</span> ₱{breakdown.revisionFee.toLocaleString()}
-          </p>
-          <p>
-            <span className="font-medium">Designer Fee:</span> ₱{breakdown.designerFee.toLocaleString()}
-          </p>
-          {addonsShirtPrice > 0 && (
-            <p className="text-blue-700 font-medium">
-              Add-Ons (Shirt/Design): ₱{addonsShirtPrice.toLocaleString()}
-            </p>
-          )}
-          {addonsFee > 0 && (
-            <p className="text-blue-700 font-medium">
-              Add-Ons Fee: ₱{addonsFee.toLocaleString()}
-            </p>
-          )}
+          <p><span className="font-medium">Total Shirts:</span> {breakdown.shirtCount}</p>
+          <p><span className="font-medium">Printing Subtotal:</span> ₱{(breakdown.printFee * breakdown.shirtCount).toLocaleString()}</p>
+          <p><span className="font-medium">Revision Fee:</span> ₱{breakdown.revisionFee.toLocaleString()}</p>
+          <p><span className="font-medium">Designer Fee:</span> ₱{breakdown.designerFee.toLocaleString()}</p>
+          {addons_shirt_price > 0 && <p className="text-blue-700 font-medium">Add-Ons (Shirt/Design): ₱{addons_shirt_price.toLocaleString()}</p>}
+          {addons_fee > 0 && <p className="text-blue-700 font-medium">Add-Ons Fee: ₱{addons_fee.toLocaleString()}</p>}
+          {clientDiscount > 0 && <p className="text-green-600 font-medium">Client Discount: -₱{clientDiscount.toLocaleString()}</p>}
           <hr className="my-2" />
-          <p className="font-semibold text-gray-900">Total: ₱{displayTotal.toLocaleString()}</p>
+          <p className="font-semibold text-gray-900">Total: ₱{finalTotal.toLocaleString()}</p>
         </div>
       )}
     </div>

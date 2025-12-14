@@ -67,7 +67,7 @@ const BillModal: React.FC<BillModalProps> = ({
 
   // Calculate subtotal including all fees
   const subtotal =
-  (breakdown.printFee * breakdown.shirtCount) +
+  (breakdown.printFee) +
   (breakdown.revisionFee || 0) +
   (breakdown.designerFee || 0);
 
@@ -77,16 +77,16 @@ const displayTotal =
   (billingDoc?.addons_shirt_price || 0) +
   (billingDoc?.addons_fee || 0);
 
-   // Final total fallback logic
-  const getFinalTotal = () => {
-    if (!billingDoc) return displayTotal;
-    if (!billingDoc.final_amount || billingDoc.final_amount === 0) {
-      return displayTotal;
-    }
-    return billingDoc.final_amount+(billingDoc?.addons_shirt_price || 0) + (billingDoc?.addons_fee || 0);
-  };
+const latestNegotiation = billingDoc?.negotiation_history?.length
+  ? billingDoc.negotiation_history[billingDoc.negotiation_history.length - 1]
+  : null;
 
-  const finalTotal = getFinalTotal();
+const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
+
+   // Final total fallback logic
+
+  const safeNegotiatedAmount = latestNegotiatedAmount ?? 0;
+
 
   const [isNegotiating, setIsNegotiating] = React.useState(false);
   const [negotiatedAmount, setNegotiatedAmount] = React.useState(displayTotal);
@@ -176,9 +176,9 @@ const displayTotal =
                 <tr className="border-t border-gray-200">
                   <td className="py-2">Shirts</td>
                   <td className="text-center">{breakdown.shirtCount}</td>
-                  <td className="text-center">₱{breakdown.printFee}</td>
+                  <td className="text-center">₱{breakdown.printFee/breakdown.shirtCount}</td>
                   <td className="text-right">
-                    ₱{(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
+                    ₱{(breakdown.printFee ).toLocaleString()}
                   </td>
                 </tr>
                 {breakdown.revisionFee >= 0 && (
@@ -231,16 +231,17 @@ const displayTotal =
                   <span>Total</span>
                   <span>₱{displayTotal.toLocaleString()}</span>
                 </div>
-                {finalTotal < displayTotal && (
+                {latestNegotiatedAmount && latestNegotiatedAmount < displayTotal && (
                   <div className="flex justify-between border-b border-gray-300 text-green-600">
                     <span>Client Discount</span>
-                    <span>-₱{(displayTotal - finalTotal).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span>₱{(latestNegotiatedAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg bg-gray-50 text-gray-800 px-2 py-1 rounded">
                   <span>Final Negotiated Price</span>
-                  <span>₱{finalTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-
+                  <span>
+                    ₱{(displayTotal - safeNegotiatedAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
                 </div>
               </div>
             </div>
@@ -284,7 +285,7 @@ const displayTotal =
               </div>
               {(billingDoc?.negotiation_rounds ?? 0) < 5 && (
                 <p className="text-sm text-gray-600 mb-2">
-                  Current negotiated Price Offered by designer: ₱{finalTotal.toLocaleString()}
+                  Current negotiated Price Offered by designer: ₱{displayTotal.toLocaleString()}
                 </p>
               )}
             </div>

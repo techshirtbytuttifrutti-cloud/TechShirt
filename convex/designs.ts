@@ -194,9 +194,9 @@ for (const rs of resolvedSizes) {
     // --- base calculation ---
     let startingAmount = 0;
     if (shirtCount >= 15) {
-      startingAmount = shirtCount * totalPrintFee + TotalRevisionFee;
+      startingAmount =  totalPrintFee + TotalRevisionFee;
     } else {
-      startingAmount = shirtCount * totalPrintFee + TotalRevisionFee + TotalDesignerFee;
+      startingAmount =  totalPrintFee + TotalRevisionFee + TotalDesignerFee;
     }
 
     // --- Update design status ---
