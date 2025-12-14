@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import html2canvas from "html2canvas-pro"; // 👈 use html2canvas-pro if possible
+import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -17,18 +17,9 @@ interface FinalizeDesignStepProps {
   };
 }
 
-
-
-
 const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
-
-  const billing = useQuery(api.billing.getBillingByDesign, {
-    designId: design._id,
-  });
-  const clientInfo = useQuery(api.billing.getClientInfoByDesign, {
-    designId: design._id,
-  });
-
+  const billing = useQuery(api.billing.getBillingByDesign, { designId: design._id });
+  const clientInfo = useQuery(api.billing.getClientInfoByDesign, { designId: design._id });
   const status = design.status;
   const isApproved = status === "approved";
   const isFinished =
@@ -37,7 +28,6 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
     status === "pending_pickup" ||
     status === "completed";
 
-  // 🧾 Reference for invoice container
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   if (!billing) {
@@ -51,84 +41,83 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
   }
 
   const { breakdown, invoiceNo, createdAt } = billing;
-  const displayTotal = billing?.starting_amount ?? breakdown.total ?? 0;
 
-  // Get final negotiated amount
-  const getFinalTotal = () => {
-    if (!billing.final_amount || billing.final_amount === 0) {
-      return displayTotal;
-    }
-    return billing.final_amount;
-  };
-  const finalTotal = getFinalTotal();
+  // ✅ Safely handle add-ons
+  const addonsShirtPrice = billing.addons_shirt_price ?? 0;
+  const addonsFee = billing.addons_fee ?? 0;
 
-  // 📄 Capture and download the invoice section as PDF
-  // 📄 Capture and download the invoice section as PDF
-    const handleDownloadPDF = async () => {
-      const invoice = invoiceRef.current;
-      if (!invoice) return;
+  const displayTotal = (billing.starting_amount ?? breakdown.total ?? 0) + addonsShirtPrice + addonsFee;
 
-      // 🧩 Hide download button before capture
-      const downloadBtn = invoice.querySelector("#download-btn") as HTMLElement;
-      if (downloadBtn) downloadBtn.style.display = "none";
+  const finalTotal =
+    !billing.final_amount || billing.final_amount === 0
+      ? displayTotal
+      : billing.final_amount + addonsShirtPrice + addonsFee;
 
-      try {
-        // Temporarily scale invoice for better quality
-        const originalTransform = invoice.style.transform;
-        invoice.style.transform = "scale(1)";
-        invoice.style.transformOrigin = "top left";
+  const handleDownloadPDF = async () => {
+    const invoice = invoiceRef.current;
+    if (!invoice) return;
 
-        const canvas = await html2canvas(invoice, {
-          scale: 3, // Higher = sharper text
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-          scrollY: -window.scrollY, // Capture whole section even if scrolled
-        });
+    const downloadBtn = invoice.querySelector("#download-btn") as HTMLElement;
+    if (downloadBtn) downloadBtn.style.display = "none";
 
-        invoice.style.transform = originalTransform;
+    try {
+      const originalTransform = invoice.style.transform;
+      invoice.style.transform = "scale(1)";
+      invoice.style.transformOrigin = "top left";
 
-        const imgData = canvas.toDataURL("image/png", 1.0);
-        const pdf = new jsPDF("p", "mm", "a4");
+      const canvas = await html2canvas(invoice, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        scrollY: -window.scrollY,
+      });
 
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      invoice.style.transform = originalTransform;
 
-        // If invoice taller than one page → auto split
-        let heightLeft = pdfHeight;
-        let position = 0;
+      const imgData = canvas.toDataURL("image/png", 1.0);
+      const pdf = new jsPDF("p", "mm", "a4");
 
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      let heightLeft = pdfHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, pdfHeight);
+      heightLeft -= pdf.internal.pageSize.getHeight();
+
+      while (heightLeft > 0) {
+        position = heightLeft - pdfHeight;
+        pdf.addPage();
         pdf.addImage(imgData, "PNG", 0, position, pdfWidth, pdfHeight);
         heightLeft -= pdf.internal.pageSize.getHeight();
-
-        while (heightLeft > 0) {
-          position = heightLeft - pdfHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, "PNG", 0, position, pdfWidth, pdfHeight);
-          heightLeft -= pdf.internal.pageSize.getHeight();
-        }
-
-        pdf.save(`Invoice_${String(invoiceNo).padStart(4, "0")}.pdf`);
-      } catch (error) {
-        console.error("PDF generation failed:", error);
-        alert("⚠️ Failed to generate PDF. Please try again.");
-      } finally {
-        // ✅ Always show button again after capture (success or fail)
-        if (downloadBtn) downloadBtn.style.display = "flex";
       }
-    };
 
+      pdf.save(`Invoice_${String(invoiceNo).padStart(4, "0")}.pdf`);
+    } catch (error) {
+      console.error("PDF generation failed:", error);
+      alert("⚠️ Failed to generate PDF. Please try again.");
+    } finally {
+      if (downloadBtn) downloadBtn.style.display = "flex";
+    }
+  };
 
   return (
-    <div className="p-2 sm:p-6 bg-white rounded-xl shadow-md space-y-3 sm:space-y-6 text-xs sm:text-sm" ref={invoiceRef}>
+    <div
+      className="p-2 sm:p-6 bg-white rounded-xl shadow-md space-y-3 sm:space-y-6 text-xs sm:text-sm"
+      ref={invoiceRef}
+    >
       {isFinished ? (
         <div>
-          {/* ✅ Header */}
+          {/* Header */}
           <div className="flex justify-between items-center">
-            <h2 className="text-lg sm:text-2xl font-bold text-gray-800">JCC Textile Printing Services</h2>
-           <button
+            <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
+              JCC Textile Printing Services
+            </h2>
+            <button
               type="button"
-              id="download-btn" // 👈 add this line
+              id="download-btn"
               onClick={handleDownloadPDF}
               aria-label="Download invoice"
               title="Download Invoice"
@@ -140,7 +129,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
             </button>
           </div>
 
-          {/* ✅ Client Info */}
+          {/* Client Info */}
           <div className="flex flex-col sm:flex-row sm:justify-between mt-3 sm:mt-6 gap-3 sm:gap-0">
             <div>
               <h4 className="font-bold text-gray-700 mb-1 text-xs sm:text-sm">Billed To:</h4>
@@ -149,9 +138,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
                   ? `${clientInfo.firstName} ${clientInfo.lastName}`
                   : "Client Name"}
               </p>
-              <p className="text-xs text-gray-500">
-                {clientInfo?.phone || "No contact number"}
-              </p>
+              <p className="text-xs text-gray-500">{clientInfo?.phone || "No contact number"}</p>
               <p className="text-xs text-gray-500 line-clamp-2">
                 {clientInfo?.address || "No address provided"}
               </p>
@@ -173,7 +160,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
             </div>
           </div>
 
-          {/* ✅ Table */}
+          {/* Table */}
           <div className="mt-3 sm:mt-6 overflow-x-auto">
             <table className="w-full text-xs sm:text-sm border-t border-b border-gray-300">
               <thead className="bg-gray-100">
@@ -209,11 +196,36 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
                     <td className="text-right">₱{breakdown.designerFee}</td>
                   </tr>
                 )}
+                {/* ✅ Add-ons */}
+                {addonsShirtPrice > 0 && (
+                  <tr className="border-t border-gray-200 bg-blue-50">
+                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">
+                      Add-Ons (Shirt/Design)
+                    </td>
+                    <td className="text-center">-</td>
+                    <td className="text-center">-</td>
+                    <td className="text-right font-semibold text-blue-900">
+                      ₱{addonsShirtPrice.toLocaleString()}
+                    </td>
+                  </tr>
+                )}
+                {addonsFee > 0 && (
+                  <tr className="border-t border-gray-200 bg-blue-50">
+                    <td className="py-1 sm:py-2 px-1 sm:px-3 font-semibold text-blue-900">
+                      Add-Ons Fee
+                    </td>
+                    <td className="text-center">-</td>
+                    <td className="text-center">₱{addonsFee.toLocaleString()}</td>
+                    <td className="text-right font-semibold text-blue-900">
+                      ₱{addonsFee.toLocaleString()}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
 
-          {/* ✅ Totals */}
+          {/* Totals */}
           <div className="flex justify-end mt-3 sm:mt-6">
             <div className="w-full sm:w-1/2 text-xs sm:text-sm space-y-1">
               <div className="flex justify-between border-b border-gray-200 pb-1">
@@ -222,7 +234,9 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-1">
                 <span>Tax/VAT (12%)</span>
-                <span>₱{(displayTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>
+                  ₱{(displayTotal * 0.12).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-1">
                 <span>Total</span>
@@ -231,30 +245,31 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
               {finalTotal < displayTotal && (
                 <div className="flex justify-between text-green-600 pb-1">
                   <span>Client Discount</span>
-                  <span>-₱{(displayTotal - finalTotal).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  <span>
+                    -₱{(displayTotal - finalTotal).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-gray-800 text-sm sm:text-lg bg-gray-50 px-2 sm:px-3 py-1 sm:py-2 rounded-md">
                 <span>Final Negotiated Price</span>
-                <span>₱{finalTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>
+                  ₱{finalTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
               </div>
             </div>
           </div>
 
-
-           {/* Footer */}
-            <div className="mt-4 sm:mt-8 text-center text-gray-600 text-xs sm:text-sm border-t pt-2 sm:pt-3">
-              <p className="font-medium">Thank you for choosing TechShirt!</p>
-              <p className="text-xs text-gray-500">
-                Please keep this invoice for your records.
-              </p>
-              <p className="text-xs font-semibold text-gray-400 mt-1">
-                Techshirt Management System © {new Date().getFullYear()}
-              </p>
-            </div>
-
+          {/* Footer */}
+          <div className="mt-4 sm:mt-8 text-center text-gray-600 text-xs sm:text-sm border-t pt-2 sm:pt-3">
+            <p className="font-medium">Thank you for choosing TechShirt!</p>
+            <p className="text-xs text-gray-500">Please keep this invoice for your records.</p>
+            <p className="text-xs font-semibold text-gray-400 mt-1">
+              Techshirt Management System © {new Date().getFullYear()}
+            </p>
+          </div>
         </div>
       ) : (
+        // Estimated Bill Breakdown
         <div className="p-4 border rounded-lg shadow-sm bg-gray-50 space-y-2 text-sm text-gray-700">
           <h2 className="text-lg font-semibold mb-2">Estimated Bill Breakdown</h2>
           <p>
@@ -262,16 +277,26 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
           </p>
           <p>
             <span className="font-medium">Printing Subtotal:</span> ₱
-            {breakdown.printFee * breakdown.shirtCount}
+            {(breakdown.printFee * breakdown.shirtCount).toLocaleString()}
           </p>
           <p>
-            <span className="font-medium">Revision Fee:</span> ₱{breakdown.revisionFee}
+            <span className="font-medium">Revision Fee:</span> ₱{breakdown.revisionFee.toLocaleString()}
           </p>
           <p>
-            <span className="font-medium">Designer Fee:</span> ₱{breakdown.designerFee}
+            <span className="font-medium">Designer Fee:</span> ₱{breakdown.designerFee.toLocaleString()}
           </p>
+          {addonsShirtPrice > 0 && (
+            <p className="text-blue-700 font-medium">
+              Add-Ons (Shirt/Design): ₱{addonsShirtPrice.toLocaleString()}
+            </p>
+          )}
+          {addonsFee > 0 && (
+            <p className="text-blue-700 font-medium">
+              Add-Ons Fee: ₱{addonsFee.toLocaleString()}
+            </p>
+          )}
           <hr className="my-2" />
-          <p className="font-semibold text-gray-900">Total: ₱{breakdown.total}</p>
+          <p className="font-semibold text-gray-900">Total: ₱{displayTotal.toLocaleString()}</p>
         </div>
       )}
     </div>

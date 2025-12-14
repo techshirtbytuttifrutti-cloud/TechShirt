@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
 import CanvasSettings from "./designCanvasComponents/CanvasSettings";
 import DesignDetails from "./designCanvasComponents/CanvasDesignDetails";
-import { Save, Upload, Info, Wrench, ArrowLeft, ReceiptText, Image, MessageCircleMore, Notebook, Loader2, BadgeCheck, ImageDown, Eye, EyeOff, RotateCcw, RotateCw } from "lucide-react"; // added Back icon
+import { Save,Plus, Upload, Info, Wrench, ArrowLeft, ReceiptText, Image, MessageCircleMore, Notebook, Loader2, BadgeCheck, ImageDown, Eye, EyeOff, RotateCcw, RotateCw } from "lucide-react"; // added Back icon
 import { useQuery } from "convex/react";
 import toast from "react-hot-toast";
 import { api } from "../../convex/_generated/api";
@@ -14,6 +14,7 @@ import { addImageFromUrl } from "./designCanvasComponents/CanvasTools";
 import CommentsModal from "./designCanvasComponents/CanvasComments";
 import ReferencesGallery from "./designCanvasComponents/CanvasDesignReferences";
 import CanvasSketch from "./designCanvasComponents/CanvasSketchModal";
+import DesignerAddOnsModal from "./AddOnsDesignerModal";
 import { motion } from "framer-motion";
 // 🔹 Import guide overlay images
 import TshirtGuide from "../images/Tshirt.png";
@@ -121,6 +122,9 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
   const designDoc = useQuery(api.designs.getById, { designId });
   const isDisabled = designDoc?.status === "approved" || designDoc?.status === "completed";
   const requestId = designDoc?.request_id;
+  const [showAddOns, setShowAddOns] = useState(false);
+  const addOns = useQuery(api.addOns.listByDesign, { designId });
+
 
   // 🔹 Fetch design request to get shirt type
   const designRequest = useQuery(
@@ -414,6 +418,8 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
             <span className="text-sm font-medium">Back</span>
           </motion.button>
 
+         
+
           {/*See Sketch*/}
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -427,6 +433,16 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
           >
           <Notebook size={18} />
 
+          </motion.button>
+           <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            type="button"
+            onClick={() => setShowAddOns(true)}
+            className="p-2 rounded bg-indigo-500 hover:bg-indigo-600 text-white"
+            title="View Add-Ons"
+          >
+            <Plus size={18} />
           </motion.button>
           {/* Comments button – only show if there are comments */}
           {comments && comments.length > 0 && (
@@ -542,6 +558,7 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
               <RotateCw size={18} />
             </motion.button>
           )}
+          
 
           {/* Save button */}
           {/* Save button */}
@@ -729,6 +746,22 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
               </div>
             </div>
           )}
+
+          {showAddOns && addOns && (
+          <DesignerAddOnsModal
+            designId={designId}
+            addOns={addOns}
+            onClose={() => setShowAddOns(false)}
+            onSelectImage={async (url: string) => {
+              if (canvas) {
+                await addImageFromUrl(canvas, url); // Add image to Fabric canvas
+                setShowAddOns(false); // Close modal after adding
+                setActiveTab("none"); // Optional: hide floating panels
+              }
+            }}
+          />
+        )}
+
 
 
         
