@@ -1,0 +1,413 @@
+// src/pages/UserDesigns.tsx
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { useUser } from "@clerk/clerk-react";
+import AdminNavbar from "../components/UsersNavbar";
+import DynamicSidebar from "../components/Sidebar";
+import StatusBadge from "../components/StatusBadge";
+import { FileText, ArrowUpDown, Search } from "lucide-react";
+import type { Id } from "../../convex/_generated/dataModel";
+import UserDesignModal from "../components/UserDesignModal";
+
+interface ConvexUser {
+  _id: Id<"users">;
+  clerkId?: string;
+  full_name?: string;
+  role?: "designer" | "client" | "admin";
+}
+
+interface DesignRecord {
+  _id: Id<"design">;
+  request_id: Id<"design_requests">;
+  client_id: Id<"users">;
+  designer_id: Id<"users">;
+  status: "in_progress" | "completed" | "billed" | "approved"| "pending_revision"| "in_production"| "pending_pickup";
+  created_at?: number;
+  _creationTime?: number;
+}
+
+interface DesignRequest {
+  _id: Id<"design_requests">;
+  request_title: string;
+  preferred_date?: string;
+}
+
+function formatTimeAgo(timestamp?: number) {
+  if (!timestamp) return "Unknown";
+  const diff = Date.now() - timestamp;
+  if (diff < 60 * 60 * 1000) return "Just now";
+  if (diff < 24 * 60 * 60 * 1000) return "Today";
+  if (diff < 48 * 60 * 60 * 1000) return "1 day ago";
+  if (diff < 7 * 24 * 60 * 60 * 1000)
+    return `${Math.floor(diff / (24 * 60 * 60 * 1000))} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function calculateDaysFromToday(dateString?: string) {
+  if (!dateString) return null;
+
+  try {
+    const preferredDate = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    preferredDate.setHours(0, 0, 0, 0);
+
+    const diffTime = preferredDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    return diffDays;
+  } catch {
+    return null;
+  }
+}
+
+function formatDeadlineStatus(daysLeft?: number | null) {
+  if (daysLeft === null || daysLeft === undefined) return "No deadline";
+
+  if (daysLeft < 0) {
+    return `${Math.abs(daysLeft)} days overdue`;
+  } else if (daysLeft === 0) {
+    return "Due today";
+  } else if (daysLeft === 1) {
+    return "Due tomorrow";
+  } else {
+    return `${daysLeft} days left`;
+  }
+}
+
+const UserDesigns: React.FC = () => {
+  const navigate = useNavigate();
+  const { user: clerkUser } = useUser();
+  const [user, setUser] = useState<ConvexUser | null>(null);
+  const [activeTab, setActiveTab] = useState<
+    "all" | "in_progress" | "completed" | "billed" | "approved"| "pending_revision"| "in_production"| "pending_pickup"
+  >("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: "asc" | "desc";
+  }>({
+    key: "created_at",
+    direction: "desc",
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [selectedRequestId, setSelectedRequestId] =
+    useState<Id<"design_requests"> | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const openModal = (design: DesignRecord) => {
+    setSelectedRequestId(design.request_id);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setSelectedRequestId(null);
+    setIsModalOpen(false);
+  };
+
+  const currentUser = useQuery(
+    api.userQueries.getUserByClerkId,
+    clerkUser ? { clerkId: clerkUser.id } : "skip"
+  ) as ConvexUser | null | undefined;
+
+  useEffect(() => {
+    if (currentUser === undefined) return;
+    if (!currentUser) {
+      navigate("/sign-in");
+      return;
+    }
+    setUser(currentUser);
+  }, [currentUser, navigate]);
+
+  const clientDesigns = useQuery(
+    api.designs.getDesignsByClient,
+    user ? { clientId: user._id } : "skip"
+  ) as DesignRecord[] | undefined;
+
+  const requestIds = clientDesigns?.map((d) => d.request_id) ?? [];
+  const designRequests =
+    useQuery(api.design_requests.getRequestsByIds, { ids: requestIds }) ?? [];
+
+  const requestsMap: Record<string, DesignRequest> = {};
+  designRequests.forEach((r: DesignRequest | null) => {
+    if (r) requestsMap[r._id] = r;
+  });
+
+  useEffect(() => {
+    if (clientDesigns !== undefined && designRequests.length >= 0)
+      setIsLoading(false);
+  }, [clientDesigns, designRequests]);
+
+  const handleSort = (key: string) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc")
+      direction = "desc";
+    setSortConfig({ key, direction });
+  };
+
+  const filteredDesigns = (clientDesigns ?? [])
+    .filter((d) => {
+      if (activeTab !== "all" && d.status !== activeTab) return false;
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        const requestName =
+          requestsMap[d.request_id]?.request_title.toLowerCase() ?? "";
+        return d.status.toLowerCase().includes(term) || requestName.includes(term);
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const { key, direction } = sortConfig;
+      let aVal: any =
+        key === "created_at"
+          ? a.created_at ?? a._creationTime ?? 0
+          : (a as any)[key] ?? "";
+      let bVal: any =
+        key === "created_at"
+          ? b.created_at ?? b._creationTime ?? 0
+          : (b as any)[key] ?? "";
+      if (aVal < bVal) return direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return direction === "asc" ? 1 : -1;
+      return 0;
+    });
+
+  if (isLoading|| !user) {
+      return (
+        <div className="flex h-screen bg-gray-50">
+          <DynamicSidebar />
+          <div className="flex-1 flex flex-col">
+            <AdminNavbar />
+            <div className="flex-1 p-6 flex items-center justify-center">
+              <div className="bg-white shadow rounded-lg p-6 text-center">
+                <p className="text-gray-500">Loading requests...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+
+  return (
+    <div className="flex min-h-screen bg-gradient-to-br from-white to-teal-50">
+      {/* Sidebar always visible */}
+      <DynamicSidebar />
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <AdminNavbar />
+        <main className="p-4 sm:p-6 md:p-8 flex flex-col gap-6 w-full max-w-7xl mx-auto overflow-x-hidden">
+          {/* Header */}
+          <motion.div
+            className="bg-white shadow-md rounded-lg p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          >
+          <div className="p-6 bg-white rounded-2xl shadow-md w-full">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+              My Orders
+            </h1>
+            <p className="text-gray-600">View and manage your orders</p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-6 gap-4">
+              <div className="relative w-full sm:w-auto">
+                <input
+                  type="text"
+                  placeholder="Search designs..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent shadow-sm w-full sm:w-64"
+                />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              </div>
+            </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex overflow-x-auto pb-2 hide-scrollbar mt-6">
+            <div className="flex space-x-2 min-w-max">
+              {["all", "in_progress", "pending_revision", "approved", "pending_pickup", "in_production", "completed"].map(
+                (tab) => (
+                  <button
+                    type="button"
+                    key={tab}
+                    onClick={() => setActiveTab(tab as typeof activeTab)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
+                      activeTab === tab
+                        ? "bg-teal-100 text-teal-800"
+                        : "bg-white text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {tab
+                      .replace("_", " ")
+                      .replace(/\b\w/g, (l) => l.toUpperCase())}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Designs Table */}
+          <div className="bg-white rounded-2xl shadow-md overflow-hidden w-full">
+            {filteredDesigns.length === 0 ? (
+              <div className="p-8 text-center">
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">No designs found</p>
+                <p className="text-gray-500 text-sm mt-1">
+                  Designs will appear here when available
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="min-w-full table-auto divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {["request_title", "status", "created_at", "deadline", "actions"].map(
+                          (key) => (
+                            <th
+                              key={key}
+                              scope="col"
+                              className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                              onClick={
+                                key !== "actions" ? () => handleSort(key) : undefined
+                              }
+                            >
+                              <div className="flex items-center">
+                                {key
+                                  .replace("_", " ")
+                                  .replace(/\b\w/g, (l) => l.toUpperCase())}
+                                {sortConfig.key === key && (
+                                  <ArrowUpDown className="ml-1 h-4 w-4" />
+                                )}
+                              </div>
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredDesigns.map((d) => {
+                        const daysLeft = calculateDaysFromToday(requestsMap[d.request_id]?.preferred_date);
+                        const deadlineStatus = formatDeadlineStatus(daysLeft);
+                        const isOverdue = daysLeft !== null && daysLeft < 0;
+                        const isDueSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 3;
+
+                        return (
+                          <tr key={d._id} className="hover:bg-gray-50">
+                            <td className="px-4 py-4 break-words">
+                              {requestsMap[d.request_id]?.request_title ?? "Loading..."}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <StatusBadge status={d.status} />
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {formatTimeAgo(d.created_at ?? d._creationTime)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <span className={`text-sm font-medium px-2 py-1 rounded ${
+                                isOverdue
+                                  ? 'bg-red-100 text-red-800'
+                                  : isDueSoon
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {deadlineStatus}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/client/seeDesign/${d._id}`)}
+                                className="px-2 py-2 text-sm font-medium bg-teal-500 text-white rounded-lg hover:bg-teal-600 active:bg-teal-700 transition-colors duration-200 shadow-sm hover:shadow-md"
+                              >
+                                See Design
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openModal(d)}
+                                className="px-2 py-2 text-sm font-medium bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 active:bg-cyan-800 transition-colors duration-200 shadow-sm hover:shadow-md"
+                              >
+                                See Order Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="md:hidden grid grid-cols-1 gap-4 px-2 sm:px-4 py-4">
+                  {filteredDesigns.map((d) => {
+                    const daysLeft = calculateDaysFromToday(requestsMap[d.request_id]?.preferred_date);
+                    const deadlineStatus = formatDeadlineStatus(daysLeft);
+                    const isOverdue = daysLeft !== null && daysLeft < 0;
+                    const isDueSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 3;
+
+                    return (
+                      <div
+                        key={d._id}
+                        className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="text-base font-medium text-gray-900 break-words flex-1">
+                            {requestsMap[d.request_id]?.request_title ?? "Loading..."}
+                          </h3>
+                          <StatusBadge status={d.status} />
+                        </div>
+                        <div className="space-y-2 text-sm text-gray-900">
+                          <p>Date: {formatTimeAgo(d.created_at ?? d._creationTime)}</p>
+                          <div>
+                            <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                              isOverdue
+                                ? 'bg-red-100 text-red-800'
+                                : isDueSoon
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {deadlineStatus}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/client/seeDesign/${d._id}`)}
+                            className="flex-1 px-4 py-2 text-sm font-medium bg-teal-500 text-white rounded-lg hover:bg-teal-600 active:bg-teal-700 transition-colors duration-200 shadow-sm hover:shadow-md"
+                          >
+                            See Design
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openModal(d)}
+                            className="flex-1 px-4 py-2 text-sm font-medium bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 active:bg-cyan-800 transition-colors duration-200 shadow-sm hover:shadow-md"
+                          >
+                            View Details
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+          </motion.div>
+        </main>
+      </div>
+
+      {selectedRequestId && isModalOpen && (
+        <UserDesignModal requestId={selectedRequestId} onClose={closeModal} />
+      )}
+    </div>
+  );
+};
+
+export default UserDesigns;

@@ -1,0 +1,1103 @@
+// src/pages/SeeDesign.tsx
+import React, { useRef, useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { useNavigate, useParams } from "react-router-dom";
+import * as fabric from "fabric";
+import { Canvas as ThreeCanvas } from "@react-three/fiber";
+import { PresentationControls, Stage } from "@react-three/drei";
+import TexturedTShirt from "./seeDesign/TexturedShirt";
+import ThreeScreenshotHelper from "../components/ThreeScreenshotHelper";
+import { ArrowLeft, Paperclip, Plus } from "lucide-react";
+import { api } from "../../convex/_generated/api";
+import { useQuery, useMutation, useAction } from "convex/react"; // ✅ include useAction
+import type { Id } from "../../convex/_generated/dataModel";
+import { useUser } from "@clerk/clerk-react";
+import BillModal from "../components/BillModal";
+import AddOnsModal from "../components/AddOnsHistoryModal";
+import { OrbitControls } from "@react-three/drei";
+import ResponseModal from "../components/ResponseModal";
+
+type FabricCanvasRecord = {
+  _id: Id<"fabric_canvases">;
+  canvas_json?: string;
+  design_id: Id<"design">;
+};
+
+type DesignRecord = {
+  _id: Id<"design">;
+  request_id: Id<"design_requests">;
+  status: string;
+  designer_id: Id<"users">;
+};
+
+type DesignRequestRecord = {
+  _id: Id<"design_requests">;
+  shirt_type: "vneck" | "polo" | "jersey" | "roundneck" | "longsleeve";
+};
+
+const SeeDesign: React.FC = () => {
+  const navigate = useNavigate();
+  const { designId } = useParams<{ designId: Id<"design"> }>();
+  const { user, isLoaded } = useUser();
+  const [fabricCanvas, setFabricCanvas] = useState<HTMLCanvasElement>();
+  const [canvasModifiedKey, setCanvasModifiedKey] = useState(0);
+  const screenshotRef = useRef<() => string>(() => "");
+  useEffect(() => {
+    if (isLoaded && user) {
+      const role = (user.unsafeMetadata?.userType as string) || "guest";
+      if (role !== "client") {
+        navigate("/");
+      }
+    }
+  }, [isLoaded, user, navigate]);
+  // fetch design by ID
+  const design = useQuery(api.designs.getById,designId ? { designId } : "skip") as DesignRecord | null | undefined;
+  // fetch linked request to get shirt type
+  const designRequest = useQuery(api.design_requests.getById,design?.request_id ? { requestId: design.request_id } : "skip"
+  ) as DesignRequestRecord | null | undefined;
+  // fetch the fabric canvas JSON stored for this design
+  const canvasDoc = useQuery( api.fabric_canvases.getByDesign, designId ? { designId } : "skip"
+  ) as FabricCanvasRecord | null | undefined;
+
+  const latestPreview = useQuery(
+    api.design_preview.getLatestByDesign,
+    designId ? { designId } : "skip"
+  ) as { _id: Id<"design_preview"> } | undefined;
+  // comments
+  const comments = useQuery( api.comments.listByPreview,latestPreview?._id ? { preview_id: latestPreview._id } : "skip"
+  ) as
+    | {
+        _id: Id<"comments">;
+        user_id: Id<"users">;
+        comment: string;
+        created_at: number;
+      }[]
+    | undefined;
+// --- Comment logic with in-memory image handling ---
+  const [newComment, setNewComment] = useState("");
+  const [commentImages, setCommentImages] = useState<File[]>([]);
+  const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const saveCommentImage = useAction(api.comments.saveCommentsImages);
+  const addComment = useMutation(api.comments.add);
+  const createNotification = useMutation(api.notifications.createNotification);
+
+ // ✅ Fetch comment images for each comment
+const commentImagesList = useQuery(
+  api.comment_images.listAll,
+  latestPreview?._id ? { preview_id: latestPreview._id } : "skip"
+) as { _id: Id<"comment_images">; comment_id: Id<"comments">; storage_id: Id<"_storage"> }[] | undefined;
+
+// --- existing states ---
+const [commentImageMap, setCommentImageMap] = useState<Record<string, string[]>>({});
+const fetchImageUrl = useAction(api.comments.getCommentImageUrl);
+
+// ✅ Load image URLs for each comment
+useEffect(() => {
+  if (!commentImagesList || commentImagesList.length === 0) return;
+
+  (async () => {
+    const newMap: Record<string, string[]> = {};
+
+    for (const img of commentImagesList) {
+      if (!newMap[img.comment_id]) newMap[img.comment_id] = [];
+
+      try {
+    // ✅ Skip if storage_id is missing or null
+        if (!img.storage_id) continue;
+
+        const url = await fetchImageUrl({ storageId: img.storage_id });
+        if (url) newMap[img.comment_id].push(url);
+      } catch (err) {
+        console.error("Failed to fetch image URL:", err);
+      }
+
+    }
+
+    setCommentImageMap(newMap);
+  })();
+}, [commentImagesList, fetchImageUrl]);
+
+
+  
+
+// ✅ Compress images before preview
+  async function compressImageFile(
+    file: File,
+    maxWidth = 800,
+    maxHeight = 800,
+    quality = 0.7
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let { width, height } = img;
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject(new Error("No canvas context"));
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+// ✅ Select images (temporary, in-memory)
+const handleCommentImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+
+  const compressedImages: string[] = [];
+  for (const file of files) {
+    try {
+      const dataUrl = await compressImageFile(file);
+      compressedImages.push(dataUrl);
+    } catch (err) {
+      console.error("Failed to compress image:", err);
+    }
+  }
+
+  setCommentImages((prev) => [...prev, ...files]);
+  setPreviewImages((prev) => [...prev, ...compressedImages]);
+};
+
+// ✅ Remove a selected preview before upload
+const removeCommentImage = (index: number) => {
+  setCommentImages((prev) => prev.filter((_, i) => i !== index));
+  setPreviewImages((prev) => prev.filter((_, i) => i !== index));
+};
+
+const handleAddComment = async () => {
+  if (!latestPreview?._id) return;
+
+  // Don’t submit if there’s no text and no images
+  if (!newComment.trim() && commentImages.length === 0) return;
+
+  try {
+    // Always create a comment (even if it’s empty text)
+    const commentId = await addComment({
+      preview_id: latestPreview._id,
+      comment: newComment.trim() || "",
+    });
+
+    // Upload images if any are selected
+    if (commentImages.length > 0) {
+      // Sequential uploads to ensure correct linking
+      for (const file of commentImages) {
+        const arrayBuffer = await file.arrayBuffer();
+        await saveCommentImage({
+          comment_id: commentId,
+          fileBytes: arrayBuffer,
+        });
+      }
+    }
+
+    // Notify designer about the comment
+    if (design?.designer_id && user?.fullName) {
+      await createNotification({
+        userId: design.designer_id,
+        userType: "designer",
+        message: `${user.fullName} added a comment on your design`,
+        title: "New Comment",
+        type: "comment",
+      });
+    }
+
+    // Reset input and previews
+    setNewComment("");
+    setCommentImages([]);
+    setPreviewImages([]);
+
+  } catch (err) {
+    console.error("❌ Failed to add comment:", err);
+    setResponseModal({
+      isOpen: true,
+      type: "error",
+      title: "Error",
+      message: "Failed to add comment. Please try again.",
+    });
+  }
+};
+
+  // ✅ Approve mutation
+  const approveDesign = useMutation(api.designs.approveDesign);
+  const requestRevision = useMutation(api.designs.reviseDesign);
+   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
+  const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
+  const [isNotReadyModalOpen, setIsNotReadyModalOpen] = useState(false);
+  const [isRevisionInProgressModalOpen, setIsRevisionInProgressModalOpen] =useState(false);
+  const billing = useQuery(api.billing.getBillingBreakdown,designId ? { designId } : "skip");
+  const [isBillModalOpen, setIsBillModalOpen] = useState(false);
+  const [isAddOnsModalOpen, setIsAddOnsModalOpen] = useState(false);
+ 
+  const reviewer = useQuery(
+    api.userQueries.getUserByClerkId,
+    user ? { clerkId: user.id } : "skip"
+  );
+
+  
+// Fetch designer info for the current design
+const designer = useQuery(api.designers.getByUserId,design?.designer_id ? { userId: design.designer_id } : "skip");
+const portfolios = useQuery(api.portfolio.getByDesignerId,designer?._id ? { designer_id: designer._id } : "skip");
+const addRatingMutation = useMutation(api.ratings_and_feedback.addRating);
+// ✅ Fetch existing rating if user is viewing the modal
+const existingRating = useQuery(api.ratings_and_feedback.getExistingRating,
+  (design?._id && reviewer?._id) ? { designId: design._id, reviewerId: reviewer._id } : "skip"
+);
+const shirtSizes = useQuery(api.shirt_sizes.getAll) || [];
+const shirtTypes = useQuery(api.shirt_types.getAll) || [];
+const [isRatingModalOpen, setIsRatingModalOpen] = useState(false);
+const [rating, setRating] = useState(0);
+const [feedback, setFeedback] = useState("");
+const [responseModal, setResponseModal] = useState({
+  isOpen: false,
+  type: "success" as "success" | "error",
+  title: "",
+  message: "",
+});
+
+// ✅ Pre-populate form with existing rating when modal opens
+useEffect(() => {
+  if (isRatingModalOpen && existingRating) {
+    setRating(existingRating.rating);
+    setFeedback(existingRating.feedback || "");
+  } else if (isRatingModalOpen && !existingRating) {
+    // Reset form if no existing rating
+    setRating(0);
+    setFeedback("");
+  }
+}, [isRatingModalOpen, existingRating]);
+
+const RevisionConfirmModal = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full">
+      <h3 className="text-lg font-semibold mb-2">Confirm Revision Request</h3>
+      <p className="text-sm text-gray-600 mb-4">
+        Each revision is estimated to cost <span className="font-medium text-red-600">₱350 - ₱400</span>.  
+        Are you sure you want to request a revision for this design?
+      </p>
+      <div className="flex justify-end gap-3">
+        <button onClick={() => setIsRevisionModalOpen(false)}
+         className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition">
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!design?._id) return;
+            try {
+              await requestRevision({ designId: design._id });
+              setResponseModal({
+                isOpen: true,
+                type: "success",
+                title: "Success!",
+                message: "Revision requested successfully!",
+              });
+            } catch (err) {
+              console.error(err);
+              setResponseModal({
+                isOpen: true,
+                type: "error",
+                title: "Error",
+                message: "Failed to request revision.",
+              });
+            }
+            setIsRevisionModalOpen(false);
+          }}
+          className="px-4 py-2 rounded-lg bg-teal-500 text-white hover:bg-yellow-600 transition">
+          Yes, Request
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const ApproveConfirmModal = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full">
+      <h3 className="text-lg font-semibold mb-2">Confirm Approval</h3>
+      <p className="text-sm text-gray-600 mb-4">
+        Once you approve this design, it will be marked as{" "}
+        <span className="font-medium text-teal-600">FINAL</span> and cannot be
+        changed.  
+        Are you sure you want to approve this design?
+      </p>
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={() => setIsApproveModalOpen(false)}
+          className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!design?._id) return;
+            try {
+              await approveDesign({ designId: design._id });
+              setResponseModal({
+                isOpen: true,
+                type: "success",
+                title: "Success!",
+                message: "Design approved successfully!",
+              });
+            } catch (err) {
+              console.error(err);
+              setResponseModal({
+                isOpen: true,
+                type: "error",
+                title: "Error",
+                message: "Failed to approve design.",
+              });
+            }
+            setIsApproveModalOpen(false);
+          }}
+          className="px-4 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition"
+        >
+          Yes, Approve
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const NotReadyModal = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full">
+      <h3 className="text-lg font-semibold mb-2">Design Not Ready </h3>
+      <p className="text-sm text-gray-600 mb-4">
+        This design is not yet complete.  
+        Please wait until the designer posts an update before you can approve or request a revision.
+      </p>
+      <div className="flex justify-end">
+        <button
+          onClick={() => setIsNotReadyModalOpen(false)}
+          className="px-4 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition"
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const RevisionInProgressModal = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full">
+      <h3 className="text-lg font-semibold mb-2">Revision In Progress</h3>
+      <p className="text-sm text-gray-600 mb-4">
+        You cannot request another revision while one is already{" "}
+        <span className="font-medium text-yellow-600">in progress</span>.  
+        Please wait until the designer completes the current revision.
+      </p>
+      <div className="flex justify-end">
+        <button
+          onClick={() => setIsRevisionInProgressModalOpen(false)}
+          className="px-4 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition"
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+
+  // helper to create a plain white fallback canvas
+function createWhiteFallbackCanvas(): HTMLCanvasElement {
+  const tempCanvasEl = document.createElement("canvas");
+  tempCanvasEl.width = 730;
+  tempCanvasEl.height = 515;
+
+  const fabricInstance = new fabric.Canvas(tempCanvasEl, {
+    backgroundColor: "#f5f5f5",
+    renderOnAddRemove: false,
+  });
+
+  fabricInstance.renderAll();
+  return tempCanvasEl;
+}
+
+
+  
+  // Load fabric JSON into hidden canvas
+  // Load fabric JSON into hidden canvas (or fallback to plain white)
+  useEffect(() => {
+  if (!canvasDoc) return;
+
+  // --- Step 1: Show an instant fallback while loading ---
+  const whiteCanvas = createWhiteFallbackCanvas();
+  setFabricCanvas(whiteCanvas);
+  setCanvasModifiedKey((k) => k + 1);
+
+  // --- Step 2: Load actual design asynchronously ---
+  const tempCanvasEl = document.createElement("canvas");
+  tempCanvasEl.width = 730;
+  tempCanvasEl.height = 515;
+
+  const fabricInstance = new fabric.Canvas(tempCanvasEl, {
+    backgroundColor: "#f5f5f5",
+    renderOnAddRemove: false,
+  });
+
+  // Make sure Fabric is using async image loading efficiently
+  fabricInstance.renderOnAddRemove = false;
+
+  if (canvasDoc.canvas_json) {
+    try {
+      fabricInstance.loadFromJSON(canvasDoc.canvas_json, async () => {
+        // Force all image elements to fully load before renderAll
+        const objects = fabricInstance.getObjects();
+        const imagePromises = objects
+          .filter((obj) => obj.type === "image")
+          .map(
+            (img: any) =>
+              new Promise<void>((resolve) => {
+                if (img._element?.complete) resolve();
+                else img._element?.addEventListener("load", () => resolve());
+              })
+          );
+
+        // Wait for all images
+        await Promise.all(imagePromises);
+
+        // Final render and set
+        fabricInstance.renderAll();
+        fabricInstance.requestRenderAll();
+
+        setFabricCanvas(tempCanvasEl);
+        setCanvasModifiedKey((k) => k + 1);
+      });
+    } catch (e) {
+      console.error("❌ Failed to load fabric canvas JSON", e);
+    }
+  }
+}, [canvasDoc]);
+
+
+  // Normalize shirt type to match model keys
+  const normalizeShirtType = (type: string | undefined): string => {
+    if (!type) return "tshirt";
+    const normalized = type.toLowerCase().replace(/\s+/g, "_");
+    const typeMap: Record<string, string> = {
+      "round_neck": "roundneck",
+      "round neck": "roundneck",
+
+      "v-neck": "vneck",
+      "v_neck": "vneck",
+      "polo": "polo",
+      "jersey": "jersey",
+      "long_sleeves": "long_sleeve",
+      "long sleeves": "long_sleeve",
+    };
+    return typeMap[normalized] || normalized;
+  };
+
+  const shirtType = normalizeShirtType(
+    designRequest?.shirt_type || (designRequest as any)?.tshirt_type
+  );
+
+  // Find the shirt type ID for filtering sizes in AddOnsModal
+  const currentShirtTypeId = React.useMemo(() => {
+    if (!designRequest || !shirtTypes || shirtTypes.length === 0) return undefined;
+    
+    const requestShirtType = designRequest.shirt_type || (designRequest as any)?.tshirt_type;
+    if (!requestShirtType) return undefined;
+    
+    console.log("=== Finding Shirt Type ID ===");
+    console.log("Request shirt type:", requestShirtType);
+    console.log("Available shirt types:", shirtTypes.map((st: any) => st.type_name));
+    
+    // Normalize the request shirt type for comparison
+    const normalizeForComparison = (str: string) => 
+      str.toLowerCase().trim().replace(/[^\w]/g, "");
+    
+    const normalizedRequest = normalizeForComparison(requestShirtType);
+    
+    // Try to find matching shirt type
+    const matchingType = shirtTypes.find((st: any) => {
+      const normalizedDb = normalizeForComparison(st.type_name || "");
+      const matches = normalizedDb === normalizedRequest;
+      if (!matches) {
+        console.log(`  "${st.type_name}" (${normalizedDb}) vs "${requestShirtType}" (${normalizedRequest}) - NO`);
+      } else {
+        console.log(`  "${st.type_name}" matches!`);
+      }
+      return matches;
+    });
+    
+    console.log("Matched type:", matchingType);
+    return matchingType?._id;
+  }, [designRequest, shirtTypes]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      transition={{ duration: 0.3 }}
+    className="
+      relative p-4 flex flex-col md:flex-row gap-4
+      h-[80vh] md:h-[80vh]  /* desktop remains same */
+      min-h-screen
+    "
+    >
+      {/* Left: 3D preview */}
+      <motion.div  className="
+    relative flex-1 border border-slate-300 rounded-2xl
+    md:h-[96vh] h-[55vh]   /* mobile/tablet: half height */
+    p-4 md:p-6 shadow-md bg-white flex items-center justify-center
+  ">
+        {/* Back + Approve inside 3D canvas container */}
+       {/* Back + Approve inside 3D canvas container */}
+        <div className="absolute top-4 left-4 z-20">
+          <motion.button
+            onClick={() => navigate(-1)}
+            className="
+              flex items-center gap-1 bg-white shadow-lg rounded-lg border
+              border-gray-300
+              px-3 py-1.5 text-xs        /* mobile */
+              sm:px-4 sm:py-2 sm:text-sm /* desktop */
+              hover:bg-gray-100
+            "
+          >
+            <ArrowLeft size={18} /> Back
+          </motion.button>
+        </div>
+
+        <div className="absolute top-4 right-4 z-20 flex gap-2 sm:gap-3">
+
+          {design && ( design.status === "completed") ? (
+            <div className="flex items-center gap-2 sm:gap-3">
+
+              <div className="
+                flex items-center gap-2 bg-green-50 text-green-700 border border-green-600
+                px-3 py-1.5 text-xs
+                sm:px-4 sm:py-2 sm:text-sm
+                rounded-lg shadow
+              ">
+               Completed
+              </div>
+
+              <motion.button
+                onClick={() => setIsAddOnsModalOpen(true)}
+                className="
+                  bg-red-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-red-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Add ons
+                <Plus size={18} />
+              </motion.button>
+
+
+              
+              {/* View Bill */}
+              <motion.button
+                onClick={() => setIsBillModalOpen(true)}
+                className="
+                  bg-teal-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-teal-600 transition
+                  flex items-center gap-2
+                "
+              >
+                View Bill
+              </motion.button>
+
+              {/* Rate */}
+              <motion.button
+                onClick={() => setIsRatingModalOpen(true)}
+                className="
+                  bg-yellow-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-yellow-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Rate Design
+              </motion.button>
+
+            </div>
+
+          ) : design && (design.status === "in_production" || design.status === "pending_pickup") ? (
+            <div className="flex items-center gap-2 sm:gap-3">
+
+              <div className="
+                flex items-center gap-2 bg-purple-200 border border-purple-300 text-purple-700
+                px-3 py-1.5 text-xs
+                sm:px-4 sm:py-2 sm:text-sm
+                rounded-lg shadow
+              ">
+                In Production
+              </div>
+
+              <motion.button
+                onClick={() => setIsAddOnsModalOpen(true)}
+                className="
+                  bg-red-400 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-red-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Add ons
+                <Plus size={18} />
+              </motion.button>
+
+              <motion.button
+                onClick={() => setIsBillModalOpen(true)}
+                className="
+                  bg-teal-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-teal-600 transition
+                  flex items-center gap-2
+                "
+              >
+                View Bill
+              </motion.button>
+
+              <motion.button
+                onClick={() => setIsRatingModalOpen(true)}
+                className="
+                  bg-yellow-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-yellow-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Rate Design
+              </motion.button>
+
+            </div>
+
+          ) : design && (design.status === "approved" ) ? (
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="
+                flex items-center gap-2 bg-green-200 border border-green-300 text-green-700
+                px-3 py-1.5 text-xs
+                sm:px-4 sm:py-2 sm:text-sm
+                rounded-lg shadow
+              ">
+                Approved
+              </div>
+
+               <motion.button
+                onClick={() => setIsAddOnsModalOpen(true)}
+                className="
+                  bg-red-400 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-red-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Add ons
+                <Plus size={18} />
+              </motion.button>
+
+              <motion.button
+                onClick={() => setIsBillModalOpen(true)}
+                className="
+                  bg-teal-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-teal-600 transition
+                  flex items-center gap-2
+                "
+              >
+                View Bill
+              </motion.button>
+
+              <motion.button
+                onClick={() => setIsRatingModalOpen(true)}
+                className="
+                  bg-yellow-500 text-white
+                  px-3 py-1.5 text-xs
+                  sm:px-6 sm:py-2 sm:text-sm
+                  rounded-lg shadow-lg hover:bg-yellow-600 transition
+                  flex items-center gap-2
+                "
+              >
+                Rate Design
+              </motion.button>
+
+            </div>
+
+          )
+           : (
+            design && (
+              <>
+                {/* Add Ons */}
+                <motion.button
+                  onClick={() => setIsAddOnsModalOpen(true)}
+                  className="
+                    bg-red-400 text-white
+                    px-3 py-1.5 text-xs
+                    sm:px-6 sm:py-2 sm:text-sm
+                    rounded-lg shadow-lg hover:bg-red-600 transition
+                    flex items-center gap-2
+                  "
+                >
+                  Add ons
+                  <Plus size={18} />
+                </motion.button>
+
+                {/* Approve */}
+                <motion.button
+                  onClick={() => {
+                    if (!latestPreview) {
+                      setIsNotReadyModalOpen(true);
+                    } else {
+                      setIsApproveModalOpen(true);
+                    }
+                  }}
+                  className="
+                    bg-teal-500 text-white
+                    px-3 py-1.5 text-xs
+                    sm:px-6 sm:py-2 sm:text-sm
+                    rounded-lg shadow-lg hover:bg-teal-600 transition
+                  "
+                >
+                  Approve
+                </motion.button>
+
+                {/* Request Revision */}
+                {design.status !== "approved" && (
+                  <motion.button
+                    onClick={() => {
+                      if (!latestPreview) {
+                        setIsNotReadyModalOpen(true);
+                      } else if (design.status === "pending_revision") {
+                        setIsRevisionInProgressModalOpen(true);
+                      } else {
+                        setIsRevisionModalOpen(true);
+                      }
+                    }}
+                    className="
+                      bg-yellow-500 text-white
+                      px-3 py-1.5 text-xs
+                      sm:px-6 sm:py-2 sm:text-sm
+                      rounded-lg shadow-lg hover:bg-yellow-600 transition
+                    "
+                  >
+                    Request Revision
+                  </motion.button>
+                )}
+              </>
+            )
+          )}
+        </div>
+
+
+        {fabricCanvas && designRequest ? (
+          <ThreeCanvas camera={{ position: [0, 1, 2.5], fov: 45 }}>
+            <color attach="background" args={["#f5f5f5"]} />
+           <PresentationControls
+            global={true}
+            snap={false}
+            cursor={true}
+            rotation={[0, 0, 0]}   // initial rotation
+            polar={[-Math.PI, Math.PI]}    // allow full vertical rotation
+            azimuth={[-Infinity, Infinity]} // allow unlimited horizontal rotation
+            speed={1.0}      // increase sensitivity             // optional, for pinch zoom                    // optional, helps smooth dragging
+          >
+            <Stage environment="city" intensity={0.5}>
+              <TexturedTShirt
+                fabricCanvas={fabricCanvas}
+                canvasModifiedKey={canvasModifiedKey}
+                shirtType={shirtType}
+              />
+              
+              <OrbitControls
+                enableZoom={true}
+                enablePan={false}
+                enableDamping={true}
+                dampingFactor={0.08}
+                rotateSpeed={0.8}
+                maxPolarAngle={Math.PI * 0.9}
+                minPolarAngle={Math.PI * 0.1}
+              />
+            </Stage>
+          </PresentationControls>
+            <ThreeScreenshotHelper onReady={(fn) => (screenshotRef.current = fn)}/>
+          </ThreeCanvas>
+        ) : (
+          <p className="text-gray-500">Loading design...</p>
+        )}
+      </motion.div>
+
+     {/* Right: Comments */}
+   <motion.div
+  className="
+    w-full md:w-1/3 border border-gray-300 rounded-2xl
+    md:h-[96vh] h-[45vh]   /* mobile/tablet: half height */
+    p-3 md:p-4 shadow-lg bg-white flex flex-col
+  "
+>
+      <h2 className="text-lg font-semibold mb-4">Comments</h2>
+
+        {/* Comments list */}
+        <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 border-b border-gray-400">
+          {comments?.length ? (
+            comments
+              .slice()
+              .reverse()
+              .map((c) => {
+                const formattedDate = new Date(c.created_at).toLocaleString();
+                const images = commentImageMap[c._id] || [];
+
+                return (
+                  <div key={c._id} className="p-3 bg-gray-50 border border-gray-400 rounded-lg shadow-sm">
+                    <p className="text-gray-800 text-sm">{c.comment}</p>
+
+                    {/* 🖼️ Attached images */}
+                    {images.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {images.map((src, idx) => (
+                          <img
+                            key={idx}
+                            src={src}
+                            alt={`comment-img-${idx}`}
+                            className="w-24 h-24 object-cover rounded-lg border border-gray-400"
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <span className="text-xs text-gray-500 block mt-1">
+                      {formattedDate}
+                    </span>
+                  </div>
+                );
+              })
+          ) : (
+            <p className="text-gray-400 text-sm">No comments yet.</p>
+          )}
+
+        </div>
+
+      {/* Input / Controls */}
+      {/* Input / Controls */}
+      {(() => {
+        const isCommentsDisabled =
+          design?.status === "approved" ||
+          design?.status === "completed" ||
+          design?.status === "in_production" ||
+          design?.status === "pending_pickup" ||
+          design?.status === "finished" ||
+          !latestPreview;
+
+        return (
+          <div className="flex flex-col gap-2 ">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder={
+                  design?.status === "approved" ||
+                  design?.status === "completed" ||
+                  design?.status === "in_production" ||
+                  design?.status === "pending_pickup" ||
+                  design?.status === "finished"
+                    ? "Comments are disabled for this design."
+                    : "Write a comment..."
+                }
+                disabled={isCommentsDisabled}
+                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-100 disabled:text-gray-400"
+              />
+
+              <label
+                htmlFor="comment-image-upload"
+                className={`p-2 rounded-md cursor-pointer transition ${
+                  isCommentsDisabled
+                    ? "opacity-50 cursor-not-allowed bg-gray-200 text-gray-400"
+                    : "text-teal-600 hover:text-teal-900"
+                }`}
+              >
+                <Paperclip className="w-5 h-5" />
+                <input
+                  aria-label="file"
+                  id="comment-image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleCommentImageSelect}
+                  disabled={isCommentsDisabled}
+                  className="hidden"
+                />
+              </label>
+
+              <button
+                onClick={handleAddComment}
+                disabled={isCommentsDisabled}
+                className={`px-4 py-2 text-sm rounded-lg ${
+                  isCommentsDisabled
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-teal-500 text-white hover:bg-teal-600"
+                }`}
+              >
+                Send
+              </button>
+            </div>
+
+            {/* 🖼️ Preview thumbnails */}
+            {!isCommentsDisabled && previewImages.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {previewImages.map((src, idx) => (
+                  <div key={idx} className="relative w-20 h-20">
+                    <img
+                      src={src}
+                      alt={`Preview ${idx}`}
+                      className="w-20 h-20 object-cover rounded-lg border"
+                    />
+                    <button
+                      onClick={() => removeCommentImage(idx)}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ⚠️ Notice when comments are disabled */}
+            {isCommentsDisabled && (
+              <p className="text-xs text-gray-500 italic mt-1">
+              Comments are disabled for designs that are approved, completed, in production, or pending pickup.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      </motion.div>
+
+     {/* 🆕 Modal Renders */}
+      {isRevisionModalOpen && <RevisionConfirmModal />}
+      {isApproveModalOpen && <ApproveConfirmModal />}
+      {isNotReadyModalOpen && <NotReadyModal />}
+      {isRevisionInProgressModalOpen && <RevisionInProgressModal />}
+      {isBillModalOpen && billing && (
+      <BillModal designId={design!._id} billing={billing} onClose={() => setIsBillModalOpen(false)} onNegotiate={() => console.log("negotiate bill")}/>
+       )}
+       {isAddOnsModalOpen && (
+        <AddOnsModal
+          designId={design!._id}
+          onClose={() => setIsAddOnsModalOpen(false)}
+          shirtSizes={shirtSizes}
+          currentShirtTypeId={currentShirtTypeId?.toString() || ""}
+           currentDesignStatus={design?.status || ""}
+        />
+      )}
+       {isRatingModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full">
+                  <h3 className="text-lg font-semibold mb-2">
+                    {existingRating ? "Update Your Rating" : "Rate this Design"}
+                  </h3>
+                  
+                  <div className="flex gap-1 mb-2">
+                    {[1,2,3,4,5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setRating(star)}
+                        className={`text-2xl ${star <= rating ? "text-yellow-400" : "text-gray-300"}`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+
+                  <textarea
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    placeholder="Leave feedback (optional)"
+                    className="w-full border rounded-lg p-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => setIsRatingModalOpen(false)}
+                      className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition" >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => { if (!design?._id || !user?.id) return;
+                       try {
+                          if (!user || !reviewer || !portfolios?.[0]?._id) { console.error("Missing user, reviewer, or portfolio");
+                            return;
+                          }
+
+                          // Cast to Convex ID types
+                        await addRatingMutation({
+                          portfolioId: portfolios[0]._id,
+                          designId: design._id,
+                          reviewerId: reviewer._id,
+                          rating,
+                          feedback,
+                        });
+                          setResponseModal({
+                            isOpen: true,
+                            type: "success",
+                            title: "Success!",
+                            message: "Rating submitted!",
+                          });
+                          setIsRatingModalOpen(false);
+                        } catch (err) {
+                          console.error(err);
+                          setResponseModal({
+                            isOpen: true,
+                            type: "error",
+                            title: "Error",
+                            message: "Failed to submit rating.",
+                          });
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 transition"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+      <ResponseModal
+        isOpen={responseModal.isOpen}
+        type={responseModal.type}
+        title={responseModal.title}
+        message={responseModal.message}
+        onClose={() => setResponseModal({ ...responseModal, isOpen: false })}
+      />
+    </motion.div>
+  );
+};
+
+export default SeeDesign;

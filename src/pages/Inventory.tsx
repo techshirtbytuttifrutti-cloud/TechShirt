@@ -1,0 +1,558 @@
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import AdminNavbar from "../components/UsersNavbar";
+import DynamicSidebar from "../components/Sidebar";
+import ResponseModal from "../components/ResponseModal";
+import { Search, FileText, ArrowUpDown, Plus, Edit, Trash2, X } from "lucide-react";
+
+interface InventoryItem {
+  _id: Id<"inventory_items">;
+  name: string;
+  category_id: Id<"inventory_categories">;
+  categoryName: string;
+  unit: string;
+  stock: number;
+  pending_restock?: number;
+  description?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+interface InventoryCategory {
+  _id: Id<"inventory_categories">;
+  category_name: string;
+}
+
+const InventoryPage: React.FC = () => {
+  const inventoryItems = useQuery(api.inventory.getInventoryItems);
+  const inventoryCategories = useQuery(api.inventory.getInventoryCategories);
+  const createItem = useMutation(api.inventory.createInventoryItem);
+  const updateItem = useMutation(api.inventory.updateInventoryItem);
+  const updateItemForEdit = useMutation(api.inventory.updateInventoryItemForEdit);
+  const deleteItem = useMutation(api.inventory.deleteInventoryItem);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentItem, setCurrentItem] = useState<Partial<InventoryItem>>({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ key: keyof InventoryItem; direction: "asc" | "desc" }>({
+    key: "created_at",
+    direction: "desc",
+  });
+
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [stockAmount, setStockAmount] = useState("");
+  const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
+  const [responseModal, setResponseModal] = useState({
+    isOpen: false,
+    type: "success" as "success" | "error",
+    title: "",
+    message: "",
+  });
+
+  const [formState, setFormState] = useState({
+    name: "",
+    categoryId: "",
+    unit: "",
+    stock: 0,
+    description: "",
+  });
+
+  useEffect(() => {
+    if (isEditMode && currentItem) {
+      setFormState({
+        name: currentItem.name || "",
+        categoryId: currentItem.category_id as unknown as string,
+        unit: currentItem.unit || "",
+        stock: currentItem.stock ?? 0,
+        description: currentItem.description || "",
+      });
+    } else {
+      setFormState({ name: "", categoryId: "", unit: "", stock: 0, description: "" });
+    }
+  }, [isEditMode, currentItem]);
+
+  const handleOpenStockModal = (item: InventoryItem) => {
+    setStockItem(item);
+    setStockAmount("");
+    setIsStockModalOpen(true);
+  };
+
+  const handleAddStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockItem || !stockAmount || Number(stockAmount) <= 0) return;
+
+    try {
+      const amountToAdd = Number(stockAmount);
+      // Pass the amount to add as 'stock' parameter
+      // The backend will handle the logic:
+      // - If amountToAdd >= pending_restock: stock increases by (amountToAdd - pending_restock), pending_restock = 0
+      // - If amountToAdd < pending_restock: stock stays same, pending_restock decreases by amountToAdd
+      await updateItem({
+        id: stockItem._id,
+        name: stockItem.name,
+        categoryId: stockItem.category_id,
+        unit: stockItem.unit,
+        stock: amountToAdd,
+        pendingRestock: stockItem.pending_restock ?? 0,
+        description: stockItem.description ?? "",
+      });
+      setIsStockModalOpen(false);
+      setStockAmount("");
+    } catch (err) {
+      console.error("Failed to update stock:", err);
+      setResponseModal({
+        isOpen: true,
+        type: "error",
+        title: "Error",
+        message: "Failed to update stock. Check console for details.",
+      });
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target;
+    setFormState((prev) => ({
+      ...prev,
+      [id]: id === "stock" ? Number(value) : value,
+    }));
+  };
+
+  const handleSelectChange = (value: string, id: string) => {
+    setFormState((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleAddItem = () => {
+    setIsEditMode(false);
+    setCurrentItem({});
+    setIsModalOpen(true);
+  };
+
+  const handleEditItem = (item: InventoryItem) => {
+    setIsEditMode(true);
+    setCurrentItem(item);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteItem = async (id: Id<"inventory_items">) => {
+    if (window.confirm("Are you sure you want to delete this item?")) {
+      await deleteItem({ id });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (isEditMode && currentItem._id) {
+      
+
+        const result = await updateItemForEdit({
+          id: currentItem._id,
+          name: formState.name,
+          categoryId: formState.categoryId as Id<"inventory_categories">,
+          unit: formState.unit,
+          stock: formState.stock,
+          pendingRestock: currentItem.pending_restock ?? 0,
+          description: formState.description,
+        });
+        console.log("updateItemForEdit completed successfully, result:", result);
+      } else {
+        await createItem({
+          name: formState.name,
+          categoryId: formState.categoryId as Id<"inventory_categories">,
+          unit: formState.unit,
+          pendingRestock: 0,
+          stock: formState.stock,
+          description: formState.description,
+        });
+      }
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error("Failed to save inventory item:", error);
+      setResponseModal({
+        isOpen: true,
+        type: "error",
+        title: "Error",
+        message: "Failed to save inventory item. Check console for details.",
+      });
+    }
+  };
+
+  const handleSort = (key: keyof InventoryItem) => {
+    const direction = sortConfig.key === key && sortConfig.direction === "asc" ? "desc" : "asc";
+    setSortConfig({ key, direction });
+  };
+
+  const filteredItems = (inventoryItems ?? [])
+    .filter((i) => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        i.name.toLowerCase().includes(term) ||
+        i.categoryName.toLowerCase().includes(term) ||
+        i.unit.toLowerCase().includes(term)
+      );
+    })
+    .sort((a, b) => {
+      const aVal = a[sortConfig.key] ?? "";
+      const bVal = b[sortConfig.key] ?? "";
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+
+  const isLoading = inventoryItems === undefined || inventoryCategories === undefined;
+   if (isLoading) {
+        return (
+          <div className="flex h-screen bg-gray-50">
+            <DynamicSidebar />
+            <div className="flex-1 flex flex-col">
+              <AdminNavbar />
+              <div className="flex-1 p-6 flex items-center justify-center">
+                <div className="bg-white shadow rounded-lg p-6 text-center">
+                  <p className="text-gray-500">Loading requests...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+    );
+  }
+
+  return (
+    <div  className="flex min-h-screen bg-gradient-to-br from-white to-gray-50">
+      <DynamicSidebar />
+      <div className="flex-1 flex flex-col min-w-0">
+        <AdminNavbar />
+        <main className="flex-1 p-6 overflow-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          >
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
+              <p className="text-gray-600">Track and manage your inventory items</p>
+            </div>
+            <button
+              onClick={handleAddItem}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="h-4 w-4" /> Add Item
+            </button>
+          </div>
+
+          <div className="mb-4 relative w-full max-w-md">
+            <input
+              type="text"
+              placeholder="Search inventory..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+            />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            {isLoading ? (
+              <div className="p-6 text-center">Loading inventory...</div>
+            ) : filteredItems.length === 0 ? (
+              <div className="p-6 text-center">
+                <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-600 text-sm">No inventory items found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {["name", "categoryName", "unit", "stock","pending_restock"].map((col) => (
+                        <th
+                          key={col}
+                          onClick={() => handleSort(col as keyof InventoryItem)}
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                        >
+                          <div className="flex items-center">
+                            {col.replace("_", " ").toUpperCase()}
+                            {sortConfig.key === col && <ArrowUpDown className="ml-1 h-4 w-4" />}
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredItems.map((item) => (
+                      <tr key={item._id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.name}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{item.categoryName}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{item.unit}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{item.stock}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{item.pending_restock}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{item.description || "N/A"}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                          <button onClick={() => handleEditItem(item)} className="inline-flex items-center px-2 py-1 text-blue-600 hover:text-blue-800 rounded-md hover:bg-blue-50">
+                            <Edit className="h-4 w-4 mr-1" /> Edit
+                          </button>
+                          <button onClick={() => handleOpenStockModal(item)} className="inline-flex items-center px-2 py-1 text-green-600 hover:text-green-800 rounded-md hover:bg-green-50">
+                            <Plus className="h-4 w-4 mr-1" /> Add Stock
+                          </button>
+                          <button onClick={() => handleDeleteItem(item._id)} className="inline-flex items-center px-2 py-1 text-red-600 hover:text-red-800 rounded-md hover:bg-red-50">
+                            <Trash2 className="h-4 w-4 mr-1" /> Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Add/Edit Modal */}
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 px-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5 relative"
+              >
+                <button
+                  aria-label="Close modal"
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+
+                <h2 className="text-lg font-semibold mb-4">
+                  {isEditMode ? "Edit Item" : "Add Item"}
+                </h2>
+
+                <form onSubmit={handleSubmit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                    <input
+                      aria-label="Name"
+                      id="name"
+                      value={formState.name}
+                      onChange={handleInputChange}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                    <select
+                      aria-label="Category"
+                      id="categoryId"
+                      value={formState.categoryId}
+                      onChange={(e) => handleSelectChange(e.target.value, "categoryId")}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                      required
+                    >
+                      <option value="">Select a category</option>
+                      {inventoryCategories?.map((cat: InventoryCategory) => (
+                        <option key={cat._id} value={cat._id}>
+                          {cat.category_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                      <input
+                        aria-label="Unit"
+                        id="unit"
+                        value={formState.unit}
+                        onChange={handleInputChange}
+                        className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
+                      <input
+                        id="stock"
+                        aria-label="Stock"
+                        type="number"
+                        value={formState.stock}
+                        onChange={handleInputChange}
+                        className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Stock Change Preview for Edit Mode */}
+              
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                    <textarea
+                      id="description"
+                      aria-label="Description"
+                      value={formState.description}
+                      onChange={handleInputChange}
+                      rows={2}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(false)}
+                      className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                    >
+                      {isEditMode ? "Save" : "Add"}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Add Stock Modal */}
+          {isStockModalOpen && stockItem && (
+            <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 px-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5 relative"
+              >
+                <button
+                  aria-label="Close modal"
+                  type="button"
+                  onClick={() => setIsStockModalOpen(false)}
+                  className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+
+                <h2 className="text-lg font-semibold mb-4">
+                  Add Stock – {stockItem.name}
+                </h2>
+
+                {/* Current Stock & Pending Restock Info */}
+                <div className="mb-4 grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-600 mb-1">Current Stock</p>
+                    <p className="text-2xl font-bold text-teal-600">{stockItem.stock}</p>
+                    <p className="text-xs text-gray-500">{stockItem.unit}</p>
+                  </div>
+                  <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                    <p className="text-xs text-orange-600 mb-1">Pending Restock</p>
+                    <p className="text-2xl font-bold text-orange-600">{stockItem.pending_restock ?? 0}</p>
+                    <p className="text-xs text-gray-500">{stockItem.unit}</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleAddStockSubmit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Amount to Add
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      aria-label="Amount to add"
+                      value={stockAmount}
+                      onChange={(e) => setStockAmount(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      required
+                      placeholder="Enter amount"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* New Stock Preview - Calculate based on backend logic */}
+                  {stockAmount && Number(stockAmount) > 0 && (
+                    <div className="p-3 bg-teal-50 rounded-lg border border-teal-200 space-y-2">
+                      <p className="text-xs text-teal-700 font-semibold">After Adding Stock:</p>
+                      {(() => {
+                        const amountToAdd = Number(stockAmount);
+                        const pendingRestock = stockItem.pending_restock ?? 0;
+                        let newStock = stockItem.stock;
+                        let newPending = pendingRestock;
+
+                        if (amountToAdd >= pendingRestock) {
+                          // Stock added covers pending restock and more
+                          const excess = amountToAdd - pendingRestock;
+                          newStock = stockItem.stock + excess;
+                          newPending = 0;
+                        } else {
+                          // Not enough to fulfill pending restock
+                          newStock = stockItem.stock;
+                          newPending = pendingRestock - amountToAdd;
+                        }
+
+                        return (
+                          <>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-teal-700">New Stock:</span>
+                              <span className="font-semibold text-teal-600">{newStock} {stockItem.unit}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-orange-700">New Pending:</span>
+                              <span className="font-semibold text-orange-600">{newPending} {stockItem.unit}</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsStockModalOpen(false)}
+                      className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!stockAmount || Number(stockAmount) <= 0}
+                      className="px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+          </motion.div>
+        </main>
+      </div>
+
+      <ResponseModal
+        isOpen={responseModal.isOpen}
+        type={responseModal.type}
+        title={responseModal.title}
+        message={responseModal.message}
+        onClose={() => setResponseModal({ ...responseModal, isOpen: false })}
+      />
+    </div>
+  );
+};
+
+export default InventoryPage;
