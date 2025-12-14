@@ -3,11 +3,11 @@ import { Canvas as ThreeCanvas } from "@react-three/fiber";
 import { useGLTF, Stage, PresentationControls } from "@react-three/drei";
 
 function TShirtModel({ shirtType }: { shirtType: string }) {
-  let modelPath = "/assets/formModels/tshirt.glb";
-  if (shirtType === "Polo") modelPath = "/assets/formModels/polo.glb";
-  else if (shirtType === "Long Sleeves") modelPath = "/assets/formModels/long_sleeve.glb";
-  else if (shirtType === "Jersey") modelPath = "/assets/formModels/jersey_uv.glb";
-  else if (shirtType === "V Neck") modelPath = "/assets/formModels/vneck.glb";
+  let modelPath = "/assets/tshirt.glb";
+  if (shirtType === "Polo") modelPath = "/assets/polo.glb";
+  else if (shirtType === "Long Sleeves") modelPath = "/assets/long_sleeve.glb";
+  else if (shirtType === "Jersey") modelPath = "/assets/jersey_uv.glb";
+  else if (shirtType === "V Neck") modelPath = "/assets/vneck.glb";
 
   const { scene } = useGLTF(modelPath);
   return <primitive object={scene} scale={1.2} />;
