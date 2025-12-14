@@ -1,3 +1,4 @@
 public/assets/formModels/vneck.glb filter=lfs diff=lfs merge=lfs -text
 public/assets/*.glb filter=lfs diff=lfs merge=lfs -text
 public/assets/formModels/*.glb filter=lfs diff=lfs merge=lfs -text
+*.glb filter=lfs diff=lfs merge=lfs -text
