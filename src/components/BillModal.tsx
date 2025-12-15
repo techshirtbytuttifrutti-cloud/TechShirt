@@ -28,6 +28,8 @@ const BillModal: React.FC<BillModalProps> = ({
   const clientInfo = useQuery(api.billing.getClientInfoByDesign, { designId });
   const billingDoc = useQuery(api.billing.getBillingByDesign, { designId });
   const approveBill = useMutation(api.billing.approveBill);
+  const shirtSizes = useQuery(api.shirt_sizes.getAll); // or getByIds with all size_ids
+
   
     const handleApproveBill = async () => {
       if (!designId) return;
@@ -72,26 +74,26 @@ const BillModal: React.FC<BillModalProps> = ({
   (breakdown.designerFee || 0);
 
 // Include add-ons in display total
-const displayTotal =
-  (billingDoc?.starting_amount ?? subtotal) +
-  (billingDoc?.addons_shirt_price || 0) +
-  (billingDoc?.addons_fee || 0);
+const displayTotal = billingDoc?.starting_amount ?? subtotal;
 
 const latestNegotiation = billingDoc?.negotiation_history?.length
   ? billingDoc.negotiation_history[billingDoc.negotiation_history.length - 1]
   : null;
 
+  const finalAmount = billingDoc?.final_amount ?? 0;
 const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
 
    // Final total fallback logic
 
-  const safeNegotiatedAmount = latestNegotiatedAmount ?? 0;
+
 
 
   const [isNegotiating, setIsNegotiating] = React.useState(false);
   const [negotiatedAmount, setNegotiatedAmount] = React.useState(displayTotal);
   const submitNegotiation = useMutation(api.billing.submitNegotiation);
   const createNotification = useMutation(api.notifications.createNotification);
+
+
 
   const [responseModal, setResponseModal] = React.useState({
     isOpen: false,
@@ -101,7 +103,8 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
   });
 
   const handleNegotiate = () => {
-    setIsNegotiating(true);
+  setNegotiatedAmount(billingDoc?.starting_amount ?? displayTotal);
+  setIsNegotiating(true);
   };
 
   return (
@@ -112,7 +115,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full"
+        className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full overflow-y-auto max-h-[80vh]"
         initial={{ scale: 0.9 }}
         animate={{ scale: 1 }}
         exit={{ scale: 0.9 }}
@@ -163,6 +166,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
             </div>
 
             {/* Items Table */}
+            {/* Items Table */}
             <table className="w-full text-left border-t border-b border-gray-300 mb-6">
               <thead>
                 <tr className="text-gray-600">
@@ -173,14 +177,20 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-t border-gray-200">
-                  <td className="py-2">Shirts</td>
-                  <td className="text-center">{breakdown.shirtCount}</td>
-                  <td className="text-center">₱{breakdown.printFee/breakdown.shirtCount}</td>
-                  <td className="text-right">
-                    ₱{(breakdown.printFee ).toLocaleString()}
-                  </td>
-                </tr>
+                {/* Breakdown per size */}
+               {billingDoc?.breakdown?.shirts?.map((shirt, index) => {
+                const sizeLabel = shirtSizes?.find(s => s._id === shirt.size_id)?.size_label || shirt.size_id;
+                return (
+                  <tr key={index} className="border-t border-gray-200">
+                    <td className="py-2">{sizeLabel}</td>
+                    <td className="text-center">{shirt.quantity}</td>
+                    <td className="text-center">₱{shirt.unit_price.toLocaleString()}</td>
+                    <td className="text-right">₱{shirt.total_price.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+
+                {/* Fees */}
                 {breakdown.revisionFee >= 0 && (
                   <tr className="border-t border-gray-200">
                     <td className="py-2">Revision Fee</td>
@@ -216,6 +226,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
               </tbody>
             </table>
 
+
             {/* Totals */}
             <div className="flex justify-end">
               <div className="w-1/2 space-y-1 text-sm">
@@ -234,28 +245,36 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
                 {latestNegotiatedAmount && latestNegotiatedAmount < displayTotal && (
                   <div className="flex justify-between border-b border-gray-300 text-green-600">
                     <span>Client Discount</span>
-                    <span>₱{(latestNegotiatedAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span>₱{((billingDoc?.starting_amount?? 0) - (billingDoc?.final_amount?? 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg bg-gray-50 text-gray-800 px-2 py-1 rounded">
                   <span>Final Negotiated Price</span>
                   <span>
-                    ₱{(displayTotal - safeNegotiatedAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    ₱{(finalAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
             </div>
+            {/* Footer */}
+        <div className="mt-4 sm:mt-8 text-center text-gray-600 text-xs sm:text-sm border-t pt-2 sm:pt-3">
+          <p className="font-medium">Thank you for choosing TechShirt!</p>
+          <p className="text-xs text-gray-500">Please keep this invoice for your records.</p>
+          <p className="text-xs font-semibold text-gray-400 mt-1">Techshirt Management System © {new Date().getFullYear()}</p>
+        </div>
           </div>
+          
         ) : (
           /* Billing Breakdown Layout */
           <>
             <div className="space-y-3 text-gray-700">
               <div className="flex justify-between">
-                <span className="font-medium">Shirts Ordered</span>
+                <span className="font-medium">Total Shirts Ordered</span>
                 <span>{breakdown.shirtCount}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-medium">Printing Fee (per shirt)</span>
+                <span className="font-medium">Total Printing Fee</span>
                 <span>₱{breakdown.printFee}</span>
               </div>
               <div className="flex justify-between">
@@ -281,11 +300,11 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
               <hr className="my-2" />
               <div className="flex justify-between text-lg font-bold text-gray-600">
                 <span>Total</span>
-                <span>₱{displayTotal.toLocaleString()}</span>
+                <span>₱{billingDoc?.starting_amount.toLocaleString()}</span>
               </div>
               {(billingDoc?.negotiation_rounds ?? 0) < 5 && (
                 <p className="text-sm text-gray-600 mb-2">
-                  Current negotiated Price Offered by designer: ₱{displayTotal.toLocaleString()}
+                  Current negotiated Price Offered by designer: ₱{finalAmount.toLocaleString()}
                 </p>
               )}
             </div>
@@ -333,6 +352,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
                 <CheckCircle size={18} /> Approve
               </button>
             </div>
+            
           </>
         )}
       </motion.div>
@@ -350,7 +370,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
             <h3 className="text-lg font-semibold mb-4">Negotiate Price</h3>
 
             <p className="text-sm text-gray-600 mb-2">
-              Current total: ₱{displayTotal.toLocaleString()}
+              Current total: ₱{billingDoc?.starting_amount.toLocaleString()}
             </p>
             
 
@@ -372,7 +392,7 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
               </button>
               <button
                 onClick={async () => {
-                  const minAllowed = displayTotal * 0.9; // 10% of starting amount
+                 const minAllowed = (billingDoc?.starting_amount ?? displayTotal ?? 0) * 0.9; // 10% of starting amount
                   if (negotiatedAmount < minAllowed) {
                     setResponseModal({
                       isOpen: true,
@@ -422,7 +442,9 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
               >
                 Submit
               </button>
+              
             </div>
+            
           </motion.div>
         </motion.div>
       )}

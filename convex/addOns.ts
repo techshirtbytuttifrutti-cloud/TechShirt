@@ -368,9 +368,10 @@ export const updateAddOnsStatus = mutation({
           addons_shirt_price:
             (billing.addons_shirt_price || 0) + quantityPrice,
           addons_fee: (billing.addons_fee || 0) + fee,
-          final_amount:
-            (billing.final_amount || 0) + quantityPrice + fee,
+          starting_amount:
+            (billing.starting_amount || 0) + quantityPrice + fee,
           status: "pending",
+          final_amount: 0,
         });
       }
 

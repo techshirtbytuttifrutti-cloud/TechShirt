@@ -248,38 +248,62 @@ export default defineSchema({
     })
       .index("by_comment", ["comment_id"]),
     // --- BILLING ---
+    // --- BILLING ---
     billing: defineTable({
-    starting_amount: v.number(),
-    total_shirts: v.number(),
-    revision_fee: v.number(),
-    designer_fee: v.number(),
-    printing_fee: v.number(),
-    addons_shirt_price: v.optional(v.number()),     // Price for quantity add-ons (shirt price * quantity)
-    addons_fee: v.optional(v.number()),             // Admin fee for add-ons
-    final_amount: v.number(),
-    negotiation_history: v.optional(
-      v.array(
+      // === SHIRT BREAKDOWN (MAIN CHANGE) ===
+      shirts: v.array(
         v.object({
-          amount: v.number(),        // the offered amount
-          date: v.number(),          // store as timestamp (ms since epoch)
-          added_by: v.optional(v.id("users")), // optional: track who made the entry
+          shirt_type_id: v.id("shirt_types"), // V-neck, Polo, etc.
+          size_id: v.id("shirt_sizes"),       // XS, S, M, L, etc.
+          quantity: v.number(),               // how many of this variant
+          unit_price: v.number(),             // price per shirt
+          total_price: v.number(),            // unit_price * quantity
         })
-      )
-    ),
-    negotiation_rounds: v.number(),
-    status: v.union(
-      v.literal("billed"),
-      v.literal("pending"),
-      v.literal("approved")
-    ),
-    client_id: v.id("users"),    // 🔄 client who pays
-    design_id: v.id("design"),   // 🔄 linked design
-    designer_id: v.id("users"),  // 🔄 designer who created
-    created_at: v.number(),
-  })
+      ),
+
+      // === FEES ===
+      revision_fee: v.number(),
+      designer_fee: v.number(),
+
+      addons_shirt_price: v.optional(v.number()), // quantity-based add-ons
+      addons_fee: v.optional(v.number()),         // admin/service add-ons
+
+      // === TOTALS ===
+      starting_amount: v.number(), // shirts total + fees (before discount)
+      final_amount: v.number(),    // after negotiation/discount
+
+      // === NEGOTIATION ===
+      negotiation_history: v.optional(
+        v.array(
+          v.object({
+            amount: v.number(),            // discount OR final amount
+            date: v.number(),              // timestamp
+            added_by: v.optional(v.id("users")),
+          })
+        )
+      ),
+      negotiation_rounds: v.number(),
+
+      // === STATUS ===
+      status: v.union(
+        v.literal("billed"),
+        v.literal("pending"),
+        v.literal("approved")
+      ),
+
+      // === RELATIONS ===
+      client_id: v.id("users"),
+      design_id: v.id("design"),
+      designer_id: v.id("users"),
+
+      created_at: v.number(),
+    })
     .index("by_client", ["client_id"])
     .index("by_designer", ["designer_id"])
     .index("by_design", ["design_id"]),
+
+
+//-------------------------------------------------------------
   designer_pricing: defineTable({
     designer_id: v.union(v.id("designers"), v.literal("default")), // ✅ allow default record
     normal_amount:v.optional(v.number()),// regular price

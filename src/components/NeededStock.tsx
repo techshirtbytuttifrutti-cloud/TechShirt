@@ -178,7 +178,7 @@ const NeededStockModal: React.FC<NeededStockModalProps> = ({
                     aria-label="Enter quantity"
                     type="number"
                     min={0}
-                    step={0.1}
+                    step={1}
                     value={entry.quantity}
                     onChange={e => handleUpdateItem(idx, "quantity", Number(e.target.value))}
                     className="w-24 border border-gray-300 rounded-md px-2 py-2 text-center"

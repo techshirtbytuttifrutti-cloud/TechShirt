@@ -48,6 +48,7 @@ export const getById = query({
   },
 });
 
+
 export const approveDesign = mutation({
   args: { designId: v.id("design") },
   handler: async (ctx, { designId }) => {
@@ -58,102 +59,69 @@ export const approveDesign = mutation({
     const request = await ctx.db.get(design.request_id);
     if (!request) throw new Error("Design request not found");
 
-    const printType = request.print_type;
-    if (!printType) throw new Error("Print type not set on request");
+    if (!request.print_type) throw new Error("Print type not set on request");
+    if (!request.tshirt_type) throw new Error("Tshirt type not set on request");
 
     const revisionCount = design.revision_count ?? 0;
 
-    // --- Get requested sizes ---
-    const reqSizes = await ctx.db
+    // --- Fetch requested sizes ---
+    const requestSizes = await ctx.db
       .query("request_sizes")
       .withIndex("by_request", (q) => q.eq("request_id", design.request_id))
       .collect();
 
-    const resolvedSizes = await Promise.all(
-      reqSizes.map(async (rs) => {
-        const sizeDoc = await ctx.db.get(rs.size_id);
-        if (!sizeDoc) throw new Error("Size not found for request_sizes entry");
-        return {
-          size_id: sizeDoc._id,
-          size_label: sizeDoc.size_label.trim(),
-          quantity: rs.quantity,
-        };
-      })
-    );
+    if (!requestSizes.length) {
+      throw new Error("No shirt sizes found for request");
+    }
 
-    if (!resolvedSizes.length) throw new Error("No shirt sizes found for request");
-
-    // --- Fetch all print pricing ---
-    const allPricing = await ctx.db.query("print_pricing").collect();
-
-    // --- Fetch shirt type document ---
-    if (!request.tshirt_type) throw new Error("Tshirt type not set on request");
-
+    // --- Resolve shirt type ---
     const normalizedType = request.tshirt_type.trim();
-
     const shirtTypeDoc = await ctx.db
       .query("shirt_types")
       .filter((q) => q.eq(q.field("type_name"), normalizedType))
       .first();
 
     if (!shirtTypeDoc) {
-      // Debug logging
-      const allShirtTypes = await ctx.db.query("shirt_types").collect();
-      console.log(
-        "All shirt types in DB:",
-        allShirtTypes.map((s) => `"${s.type_name}"`)
-      );
-      console.log("Normalized requested type:", `"${normalizedType}"`);
       throw new Error(`Shirt type "${normalizedType}" not found`);
     }
 
-    // --- Calculate total print fee ---
-    let totalPrintFee = 0;
+    // --- Fetch pricing ---
+    const allPricing = await ctx.db.query("print_pricing").collect();
 
-for (const rs of resolvedSizes) {
-  // Find pricing entries for this size
-  const match = allPricing.find((p) => p.print_type === printType && p.size === rs.size_id);
+    // --- Build billing.shirts[] ---
+    const shirts = [];
+    let shirtsTotal = 0;
+    let shirtCount = 0;
 
-  if (!match) {
-    throw new Error(
-      `No print pricing entry found for print type=${printType} and size ID=${rs.size_id}`
-    );
-  }
-
-  // Only fetch shirt type if match.shirt_type is a proper ID
-  if (typeof match.shirt_type === "string" && match.shirt_type === "default") {
-    // Handle default case if needed
-    if (shirtTypeDoc.type_name !== "Default") {
-      throw new Error(
-        `Print pricing shirt type mismatch: expected "${shirtTypeDoc.type_name}", got "Default"`
+    for (const rs of requestSizes) {
+      const pricing = allPricing.find(
+        (p) =>
+          p.print_type === request.print_type &&
+          p.size === rs.size_id &&
+          p.shirt_type === shirtTypeDoc._id
       );
+
+      if (!pricing) {
+        throw new Error(
+          `No print pricing for size=${rs.size_id} type=${shirtTypeDoc.type_name}`
+        );
+      }
+
+      const totalPrice = pricing.amount * rs.quantity;
+
+      shirts.push({
+        shirt_type_id: shirtTypeDoc._id,
+        size_id: rs.size_id,
+        quantity: rs.quantity,
+        unit_price: pricing.amount,
+        total_price: totalPrice,
+      });
+
+      shirtsTotal += totalPrice;
+      shirtCount += rs.quantity;
     }
-  } else {
-    // Fetch shirt type document from DB
-    const pricingShirtTypeDoc = await ctx.db.get(match.shirt_type as Id<"shirt_types">);
-    if (!pricingShirtTypeDoc) {
-      throw new Error(`Shirt type not found for print pricing ID=${match._id}`);
-    }
 
-    // Compare by type_name
-    if (pricingShirtTypeDoc.type_name !== shirtTypeDoc.type_name) {
-      throw new Error(
-        `Print pricing shirt type mismatch: expected "${shirtTypeDoc.type_name}", got "${pricingShirtTypeDoc.type_name}"`
-      );
-    }
-  }
-
-  totalPrintFee += match.amount * rs.quantity;
-}
-
-    const shirtCount = resolvedSizes.reduce((sum, rs) => sum + rs.quantity, 0);
-    // --- printing fee per shirt ---
-    
-
-    // --- revision fee ---
-    
-    
-    // --- Fetch designer profile (from designers table) ---
+    // --- Fetch designer profile ---
     const designerProfile = await ctx.db
       .query("designers")
       .withIndex("by_user", (q) => q.eq("user_id", design.designer_id))
@@ -161,48 +129,42 @@ for (const rs of resolvedSizes) {
 
     if (!designerProfile) throw new Error("Designer profile not found");
 
-    // --- Fetch pricing from designer_pricing ---
-    const pricing = await ctx.db
-      .query("designer_pricing")
-      .withIndex("by_designer", (q) => q.eq("designer_id", designerProfile._id))
-      .first();
-    const defaultPricing = await ctx.db
-    .query("designer_pricing")
-    .withIndex("by_designer", (q) => q.eq("designer_id", "default"))
-    .first();
-    if (!defaultPricing)
-    throw new Error("Default designer pricing record not found.");
-    const designerFee =
-      pricing?.normal_amount && pricing.normal_amount > 0
-      ? pricing.normal_amount
-      : defaultPricing.normal_amount ?? 0;
-    const revisionFee =
-      pricing && pricing.revision_fee && pricing.revision_fee > 0
-      ? pricing.revision_fee
-      : (defaultPricing?.revision_fee ?? 0);
-      
-    const TotalDesignerFee =  shirtCount <= 15
-        ? designerFee 
-        : 0;
-    let TotalRevisionFee = 0;
-    if (shirtCount >= 15) {
-      TotalRevisionFee = revisionCount > 2 ? (revisionCount - 2) * revisionFee : 0;
-    } else {
-      TotalRevisionFee = revisionCount * revisionFee;
-    }
+    // --- Fetch designer pricing ---
+    const pricing =
+      (await ctx.db
+        .query("designer_pricing")
+        .withIndex("by_designer", (q) =>
+          q.eq("designer_id", designerProfile._id)
+        )
+        .first()) ??
+      (await ctx.db
+        .query("designer_pricing")
+        .withIndex("by_designer", (q) => q.eq("designer_id", "default"))
+        .first());
 
-    // --- base calculation ---
-    let startingAmount = 0;
-    if (shirtCount >= 15) {
-      startingAmount =  totalPrintFee + TotalRevisionFee;
-    } else {
-      startingAmount =  totalPrintFee + TotalRevisionFee + TotalDesignerFee;
-    }
+    if (!pricing) throw new Error("Designer pricing not found");
+
+    const baseDesignerFee = pricing.normal_amount ?? 0;
+    const revisionFeeUnit = pricing.revision_fee ?? 0;
+
+    // --- Designer + revision logic ---
+    const designerFee = shirtCount <= 15 ? baseDesignerFee : 0;
+
+    const revisionFee =
+      shirtCount >= 15
+        ? revisionCount > 2
+          ? (revisionCount - 2) * revisionFeeUnit
+          : 0
+        : revisionCount * revisionFeeUnit;
+
+    // --- Starting amount ---
+    const startingAmount =
+      shirtsTotal + revisionFee + (shirtCount <= 15 ? designerFee : 0);
 
     // --- Update design status ---
     await ctx.db.patch(designId, { status: "approved" });
 
-    // --- Check if billing already exists ---
+    // --- Create billing if not exists ---
     const existingBilling = await ctx.db
       .query("billing")
       .withIndex("by_design", (q) => q.eq("design_id", designId))
@@ -210,35 +172,33 @@ for (const rs of resolvedSizes) {
 
     if (!existingBilling) {
       await ctx.db.insert("billing", {
+        shirts,
+        revision_fee: revisionFee,
+        designer_fee: designerFee,
+
         starting_amount: startingAmount,
-        total_shirts: shirtCount,
-        revision_fee: TotalRevisionFee,
-        designer_fee: TotalDesignerFee,
-        printing_fee: totalPrintFee,
         final_amount: 0,
+
         negotiation_history: [],
         negotiation_rounds: 0,
         status: "pending",
+
         client_id: design.client_id,
-
-        // store both IDs for clarity
-        designer_id: design.designer_id, // from users table
-
+        designer_id: design.designer_id,
         design_id: designId,
         created_at: Date.now(),
       });
     }
 
-    // --- Send notification to the designer ---
+    // --- Notifications ---
     await ctx.runMutation(api.notifications.createNotification, {
       userId: design.designer_id,
       userType: "designer",
       title: "Design Approved",
-      message: `Your design for "${request.request_title}" has been approved by the client.`,
+      message: `Your design for "${request.request_title}" has been approved.`,
       type: "design_approved",
     });
 
-    // Log history for client approving design
     await ctx.runMutation(api.history.addHistory, {
       userId: design.client_id,
       userType: "client",
@@ -248,46 +208,11 @@ for (const rs of resolvedSizes) {
       relatedType: "design",
       details: {
         status: "approved",
-        previousStatus: "in_progress",
         amount: startingAmount,
       },
     });
 
-    // Log history for designer having design approved
-    await ctx.runMutation(api.history.addHistory, {
-      userId: design.designer_id,
-      userType: "designer",
-      action: `Your design for "${request.request_title}" was approved by the client`,
-      actionType: "design_approval",
-      relatedId: designId,
-      relatedType: "design",
-      details: {
-        status: "approved",
-        previousStatus: "in_progress",
-      },
-    });
-
-    // --- Send notification to admins ---
-    const admins = await ctx.db
-      .query("users")
-      .filter((q) => q.eq(q.field("role"), "admin"))
-      .collect();
-
-    if (admins.length > 0) {
-      const adminRecipients = admins.map((admin) => ({
-        userId: admin._id,
-        userType: "admin" as const,
-      }));
-
-      await ctx.runMutation(api.notifications.createNotificationForMultipleUsers, {
-        recipients: adminRecipients,
-        title: "Design Approved",
-        message: `Design for "${request.request_title}" has been approved by the client.`,
-        type: "design_approved_admin",
-      });
-    }
-
-    return { success: true, status: "approved", startingAmount };
+    return { success: true, startingAmount };
   },
 });
 

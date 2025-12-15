@@ -1,41 +1,54 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/* -------------------------------------------------
+   BILLING BREAKDOWN (MULTI-SHIRT SUPPORT)
+-------------------------------------------------- */
 export const getBillingBreakdown = query({
   args: { designId: v.id("design") },
   handler: async (ctx, { designId }) => {
-
     const billingDoc = await ctx.db
-    .query("billing")
-    .withIndex("by_design", (q) => q.eq("design_id", designId))
-    .first();
+      .query("billing")
+      .withIndex("by_design", (q) => q.eq("design_id", designId))
+      .first();
 
-    const design = await ctx.db.get(designId);
-    if (!design) throw new Error("Design not found");
+    if (!billingDoc) {
+      return {
+        shirtCount: 0,
+        printFee: 0,
+        revisionFee: 0,
+        designerFee: 0,
+        total: 0,
+      };
+    }
 
-    // Get request
-    const request = await ctx.db.get(design.request_id);
-    if (!request) throw new Error("Design request not found");
+    // Total shirts & printing cost from shirts[]
+    const shirtCount = billingDoc.shirts.reduce(
+      (sum, s) => sum + s.quantity,
+      0
+    );
 
-    // Get all request_sizes linked to this request
+    const printFee = billingDoc.shirts.reduce(
+      (sum, s) => sum + s.total_price,
+      0
+    );
 
-    // Total shirts
-    // Printing fee (based on print_type from request)
-    
     return {
-      shirtCount: billingDoc?.total_shirts ?? 0,
-      printFee: billingDoc?.printing_fee ?? 0,
-      revisionFee: billingDoc?.revision_fee ?? 0,
-      designerFee: billingDoc?.designer_fee ?? 0,
-      total: billingDoc?.starting_amount ?? 0,
+      shirtCount,
+      printFee,
+      revisionFee: billingDoc.revision_fee,
+      designerFee: billingDoc.designer_fee,
+      total: billingDoc.starting_amount,
     };
   },
 });
 
+/* -------------------------------------------------
+   APPROVE BILL
+-------------------------------------------------- */
 export const approveBill = mutation({
   args: { designId: v.id("design") },
   handler: async (ctx, { designId }) => {
-    // --- Find the billing record linked to this design ---
     const billingDoc = await ctx.db
       .query("billing")
       .withIndex("by_design", (q) => q.eq("design_id", designId))
@@ -45,17 +58,15 @@ export const approveBill = mutation({
       throw new Error("No billing record found for this design");
     }
 
-    // --- Include approved add-ons ---
-    const addonsShirtPrice = billingDoc.addons_shirt_price || 0;
-    const addonsFee = billingDoc.addons_fee || 0;
+    let finalAmount = billingDoc.final_amount;
+    if (billingDoc.final_amount === 0) {
 
-    // --- Determine final amount ---
-    const finalAmount =
-      (billingDoc.final_amount && billingDoc.final_amount > 0
-        ? billingDoc.final_amount
-        : billingDoc.starting_amount || 0) + addonsShirtPrice + addonsFee;
+       finalAmount = billingDoc.starting_amount;
+    }else{
+       finalAmount = billingDoc.final_amount;
+    }
 
-    // --- Update billing status and amount ---
+    
     await ctx.db.patch(billingDoc._id, {
       status: "approved",
       final_amount: finalAmount,
@@ -66,77 +77,64 @@ export const approveBill = mutation({
   },
 });
 
-
+/* -------------------------------------------------
+   GET BILLING BY DESIGN
+-------------------------------------------------- */
 export const getBillingByDesign = query({
   args: { designId: v.id("design") },
   handler: async (ctx, { designId }) => {
-    // 1. Get billing record
     const billingDoc = await ctx.db
       .query("billing")
       .withIndex("by_design", (q) => q.eq("design_id", designId))
       .first();
 
-    if (!billingDoc) {
-      return null; // ✅ safe fallback
-    }
+    if (!billingDoc) return null;
 
+    // Invoice number
     const allBillings = await ctx.db.query("billing").collect();
     allBillings.sort((a, b) => a._creationTime - b._creationTime);
+    const invoiceNo =
+      allBillings.findIndex((b) => b._id === billingDoc._id) + 1;
 
-    // invoice number = index in creation order
-    const invoiceNo = allBillings.findIndex((b) => b._id === billingDoc._id) + 1;
+    // Shirt totals
+    const shirtCount = billingDoc.shirts.reduce(
+      (sum, s) => sum + s.quantity,
+      0
+    );
 
-    // 2. Fetch design
-    const design = await ctx.db.get(designId);
-    if (!design) throw new Error("Design not found");
+    const printFee = billingDoc.shirts.reduce(
+      (sum, s) => sum + s.total_price,
+      0
+    );
 
-    // 3. Fetch request
-    const request = await ctx.db.get(design.request_id);
-    if (!request) throw new Error("Design request not found");
-
- 
-
-    // 6. Fetch designer profile (from designers table)
-    const designerProfile = await ctx.db
-      .query("designers")
-      .withIndex("by_user", (q) => q.eq("user_id", design.designer_id))
-      .unique();
-
-    if (!designerProfile) throw new Error("Designer profile not found");
-    // 7. Fetch designer pricing
-  
-
-   
-
-    // 9. Return billing + breakdown
     return {
       ...billingDoc,
       createdAt: new Date(billingDoc._creationTime).toISOString(),
       invoiceNo,
       breakdown: {
-      shirtCount: billingDoc?.total_shirts ?? 0,
-      printFee: billingDoc?.printing_fee ?? 0,
-      revisionFee: billingDoc?.revision_fee ?? 0,
-      designerFee: billingDoc?.designer_fee ?? 0,
-      total: billingDoc?.starting_amount ?? 0,
+        shirts: billingDoc.shirts, // ✅ expose full breakdown
+        shirtCount,
+        printFee,
+        revisionFee: billingDoc.revision_fee,
+        designerFee: billingDoc.designer_fee,
+        total: billingDoc.starting_amount,
       },
     };
   },
 });
 
-
+/* -------------------------------------------------
+   CLIENT INFO
+-------------------------------------------------- */
 export const getClientInfoByDesign = query({
   args: { designId: v.id("design") },
   handler: async (ctx, { designId }) => {
-    // find the design
     const designDoc = await ctx.db.get(designId);
     if (!designDoc) return null;
 
-    // get the client user
     const userDoc = await ctx.db.get(designDoc.client_id);
     if (!userDoc) return null;
 
-    // get the client profile (phone + address)
     const clientProfile = await ctx.db
       .query("clients")
       .withIndex("by_user", (q) => q.eq("user_id", userDoc._id))
@@ -152,6 +150,9 @@ export const getClientInfoByDesign = query({
   },
 });
 
+/* -------------------------------------------------
+   NEGOTIATION (STORE DISCOUNT DELTA)
+-------------------------------------------------- */
 export const submitNegotiation = mutation({
   args: { designId: v.id("design"), newAmount: v.number() },
   handler: async (ctx, { designId, newAmount }) => {
@@ -167,7 +168,6 @@ export const submitNegotiation = mutation({
       throw new Error("Maximum negotiation rounds reached (5).");
     }
 
-    // Who’s negotiating
     const identity = await ctx.auth.getUserIdentity();
     const userDoc = identity
       ? await ctx.db
@@ -176,26 +176,19 @@ export const submitNegotiation = mutation({
           .first()
       : null;
 
-    // Calculate the discount / delta
-    const originalTotal =
-      (billing.starting_amount ?? 0) +
-      (billing.addons_shirt_price ?? 0) +
-      (billing.addons_fee ?? 0);
-
-    const discountAmount = originalTotal - newAmount;
+    // DISCOUNT = starting_amount - proposed final amount
+    
 
     const newEntry = {
-      amount: discountAmount, // store the difference, not newAmount
+      amount: newAmount,
       date: Date.now(),
       added_by: userDoc?._id,
     };
 
-    const updatedHistory = billing.negotiation_history
-      ? [...billing.negotiation_history, newEntry]
-      : [newEntry];
-
     await ctx.db.patch(billing._id, {
-      negotiation_history: updatedHistory,
+      negotiation_history: billing.negotiation_history
+        ? [...billing.negotiation_history, newEntry]
+        : [newEntry],
       final_amount: 0,
       negotiation_rounds: rounds + 1,
       status: "pending",
@@ -205,7 +198,9 @@ export const submitNegotiation = mutation({
   },
 });
 
-
+/* -------------------------------------------------
+   SET FINAL AMOUNT
+-------------------------------------------------- */
 export const UpdateFinalAmount = mutation({
   args: { billingId: v.id("billing"), finalAmount: v.number() },
   handler: async (ctx, { billingId, finalAmount }) => {
@@ -221,6 +216,9 @@ export const UpdateFinalAmount = mutation({
   },
 });
 
+/* -------------------------------------------------
+   LIST ALL BILLINGS
+-------------------------------------------------- */
 export const listAll = query({
   handler: async (ctx) => {
     return await ctx.db.query("billing").collect();
