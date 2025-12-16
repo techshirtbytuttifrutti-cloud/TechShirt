@@ -25,38 +25,48 @@ export const create = mutation({
     });
   },
 });
-
 export const upsertDefault = mutation({
-    args: {
-      print_id: v.id("prints"),
-      shirt_type: v.id("shirt_types"),
-      size: v.id("shirt_sizes"),
-      print_type: v.string(),
-      description: v.optional(v.string()),
-      amount: v.number(),
-    },
-    handler: async (ctx, args) => {
-      const existing = await ctx.db
-        .query("print_pricing")
-        .filter((q) => q.eq(q.field("print_id"), args.print_id))
-        .filter((q) => q.eq(q.field("shirt_type"), args.shirt_type))
-        .filter((q) => q.eq(q.field("size"), args.size))
-        .first();
+  args: {
+    amount: v.number(),
+    description: v.optional(v.string()),
+    print_id: v.optional(v.union(v.id("prints"), v.literal("default"))),
+    shirt_type: v.optional(v.union(v.id("shirt_types"), v.literal("default"))),
+    size: v.optional(v.union(v.id("shirt_sizes"), v.literal("default"))),
+    print_type: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const defaults = {
+      print_id: "default" as const,
+      shirt_type: "default" as const,
+      size: "default" as const,
+      print_type: "Default",
+    };
 
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          ...args,
-          updated_at: Date.now(),
-        });
-        return existing._id;
-      }
+    const mergedArgs = { ...defaults, ...args };
 
-      return await ctx.db.insert("print_pricing", {
-        ...args,
-        created_at: Date.now(),
+    const existing = await ctx.db
+      .query("print_pricing")
+      .filter((q) => q.eq(q.field("print_id"), "default"))
+      .filter((q) => q.eq(q.field("shirt_type"), "default"))
+      .filter((q) => q.eq(q.field("size"), "default"))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...mergedArgs,
+        updated_at: Date.now(),
       });
-    },
-  });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("print_pricing", {
+      ...mergedArgs,
+      created_at: Date.now(),
+    });
+  },
+});
+
+
 /* ------------------------- UPDATE -------------------------- */
 export const update = mutation({
   args: {

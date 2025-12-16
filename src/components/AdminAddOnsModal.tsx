@@ -63,19 +63,31 @@ export default function AdminAddOnsModal({
   shirtSizes.forEach((s: ShirtSize) => (sizeMap[s._id] = s.size_label));
 
   /** MAP: sizeId → unit price */
-  const priceMap: Record<string, number> = {};
-  printPricing.forEach((p) => {
-    priceMap[p.size] = p.amount; // assuming p.size is _id
-  });
+  /** MAP: sizeId → unit price, using default if 0 */
+const priceMap: Record<string, number> = {};
+let defaultPrice = 0;
 
-  /** FINAL PRICE CALCULATION (PHP) */
-  const quantityPriceTotal =
-    addOn.type === "quantity" || addOn.type === "designAndQuantity"
-      ? addOnSizes.reduce((total, s) => {
-          const unitPrice = priceMap[s.sizeId] || 0;
-          return total + unitPrice * s.quantity;
-        }, 0)
-      : 0;
+printPricing.forEach((p) => {
+  if (p.print_id === "default") {
+    defaultPrice = p.amount;
+  } else {
+    priceMap[p.size as string] = p.amount;
+  }
+});
+
+/** FINAL PRICE CALCULATION (PHP) */
+const quantityPriceTotal =
+  addOn.type === "quantity" || addOn.type === "designAndQuantity"
+    ? addOnSizes.reduce((total, s) => {
+        // Use specific price if >0, otherwise fallback to default
+        const unitPrice =
+          priceMap[s.sizeId] && priceMap[s.sizeId] > 0
+            ? priceMap[s.sizeId]
+            : defaultPrice;
+
+        return total + unitPrice * s.quantity;
+      }, 0)
+    : 0;
 
   const handleApprove = async () => {
     if (!adminUser?._id) return alert("Admin user not found");
@@ -223,7 +235,12 @@ export default function AdminAddOnsModal({
 
                     {addOnSizes.map((s) => {
                       const sizeLabel = sizeMap[s.sizeId];
-                      const unitPrice = priceMap[s.sizeId] || 0;
+
+                      // Use default price if price is 0 or missing
+                      const unitPrice =
+                        priceMap[s.sizeId] && priceMap[s.sizeId] > 0
+                          ? priceMap[s.sizeId]
+                          : defaultPrice;
 
                       return (
                         <div key={s._id} className="flex justify-between">
@@ -237,10 +254,20 @@ export default function AdminAddOnsModal({
 
                     <div className="flex justify-between font-semibold border-t pt-2">
                       <span>Total:</span>
-                      <span>₱{quantityPriceTotal.toFixed(2)}</span>
+                      <span>
+                        ₱
+                        {addOnSizes.reduce((total, s) => {
+                          const unitPrice =
+                            priceMap[s.sizeId] && priceMap[s.sizeId] > 0
+                              ? priceMap[s.sizeId]
+                              : defaultPrice;
+                          return total + unitPrice * s.quantity;
+                        }, 0).toFixed(2)}
+                      </span>
                     </div>
                   </div>
                 )}
+
 
               {addOn.status === "pending" && (
                 <div className="flex gap-3 pt-3">

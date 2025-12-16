@@ -55,23 +55,53 @@ export const getByCategory = query({
 /* ================================
    CREATE SIZE
 ================================ */
-export const create = mutation({
+export const create =  mutation({
   args: {
-    type: v.id("shirt_types"),     // ✅ now ID, not string
+    type: v.id("shirt_types"),
     size_label: v.string(),
     w: v.number(),
     h: v.number(),
     sleeves_w: v.optional(v.number()),
     sleeves_h: v.optional(v.number()),
     category: v.union(v.literal("kids"), v.literal("adult")),
+
+    // default amount per print type
+    default_amount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const {
+      default_amount = 0,
+      ...sizeData
+    } = args;
+
+    /* 1️⃣ Create shirt size */
     const sizeId = await ctx.db.insert("shirt_sizes", {
-      ...args,
+      ...sizeData,
       created_at: Date.now(),
     });
 
-    return sizeId;
+    /* 2️⃣ Get all print definitions */
+    const prints = await ctx.db
+      .query("prints")
+      .collect();
+
+    /* 3️⃣ Create pricing per print */
+    for (const print of prints) {
+      await ctx.db.insert("print_pricing", {
+        print_id: print._id,
+        print_type: print.print_type ?? "default", // assumes `type` exists in prints table
+        amount: default_amount,
+        description: `Auto-created pricing for ${sizeData.size_label}`,
+        shirt_type: args.type,
+        size: sizeId,
+        created_at: Date.now(),
+      });
+    }
+
+    return {
+      sizeId,
+      pricingCreated: prints.length,
+    };
   },
 });
 

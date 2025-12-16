@@ -3,16 +3,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { Loader, Plus, Edit, Trash2, X, FileText } from "lucide-react";
+import { Loader, Plus, Edit, Trash2, X } from "lucide-react";
 import type { Id } from "../../convex/_generated/dataModel";
 
 interface Pricing {
   _id: Id<"print_pricing">;
-  print_id: Id<"prints">;
+  print_id: Id<"prints"> | "default";
   print_type: string;
   amount: number;
-  shirt_type: Id<"shirt_types">;
-  size: Id<"shirt_sizes">;
+  shirt_type: Id<"shirt_types"> | "default";
+  size: Id<"shirt_sizes"> | "default";
   created_at: number;
   updated_at?: number;
 }
@@ -25,7 +25,6 @@ interface PrintType {
 interface ShirtType {
   _id: Id<"shirt_types">;
   type_name: string;
-  description?: string;
 }
 
 interface ShirtSize {
@@ -33,59 +32,51 @@ interface ShirtSize {
   size_label: string;
   w: number;
   h: number;
-  type: Id<"shirt_types">; // points to shirt_types._id
-  sleeves_w?: number;
-  sleeves_h?: number;
+  type: Id<"shirt_types">;
   category: "kids" | "adult";
 }
 
 const emptyForm = {
-  print_id: "",
-  shirt_type: "",
-  size: "",
+  print_id: "" as Id<"prints"> | "default" | "",
+  shirt_type: "" as Id<"shirt_types"> | "default" | "",
+  size: "" as Id<"shirt_sizes"> | "default" | "",
   amount: "",
 };
 
 const PrintPricing: React.FC = () => {
-  // --- Queries ---
   const pricing = useQuery(api.print_pricing.getAll) as Pricing[] | undefined;
   const printTypes = useQuery(api.prints.getAll) as PrintType[] | undefined;
   const shirtTypes = useQuery(api.shirt_types.getAll) as ShirtType[] | undefined;
   const sizes = useQuery(api.shirt_sizes.getAll) as ShirtSize[] | undefined;
 
-  // --- Mutations ---
   const createPricing = useMutation(api.print_pricing.create);
   const updatePricing = useMutation(api.print_pricing.update);
   const deletePricing = useMutation(api.print_pricing.remove);
+  const upsertDefault = useMutation(api.print_pricing.upsertDefault);
 
-  // --- Local state ---
   const [localRows, setLocalRows] = useState<Pricing[]>([]);
   const [editing, setEditing] = useState<Pricing | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState(() => ({ ...emptyForm }));
 
-  // keep localRows synced with server pricing
   useEffect(() => {
     if (pricing) setLocalRows(pricing);
   }, [pricing]);
 
-  // --- Helpers to look up names ---
-  const getPrintName = (id?: Id<"prints">) =>
-    printTypes?.find((p) => String(p._id) === String(id))?.print_type ?? "Unknown";
+  const getPrintName = (id?: Id<"prints"> | "default") =>
+    id === "default" ? "Default" : printTypes?.find((p) => String(p._id) === String(id))?.print_type ?? "Unknown";
 
-  const getShirtTypeName = (id?: Id<"shirt_types">) =>
-    shirtTypes?.find((t) => String(t._id) === String(id))?.type_name ?? "Unknown";
+  const getShirtTypeName = (id?: Id<"shirt_types"> | "default") =>
+    id === "default" ? "Default" : shirtTypes?.find((t) => String(t._id) === String(id))?.type_name ?? "Unknown";
 
-  const getSizeObj = (id?: Id<"shirt_sizes">) =>
-    sizes?.find((s) => String(s._id) === String(id)) ?? null;
+  const getSizeObj = (id?: Id<"shirt_sizes"> | "default") =>
+    id === "default" ? null : sizes?.find((s) => String(s._id) === String(id)) ?? null;
 
-  // --- available sizes for currently selected shirt type (filter by id) ---
   const availableSizes = useMemo(() => {
-    if (!form.shirt_type || !sizes) return [];
+    if (!form.shirt_type || form.shirt_type === "default" || !sizes) return [];
     return sizes.filter((s) => String(s.type) === String(form.shirt_type));
   }, [form.shirt_type, sizes]);
 
-  // --- Handlers ---
   const openAddModal = () => {
     setEditing(null);
     setForm({ ...emptyForm });
@@ -93,38 +84,77 @@ const PrintPricing: React.FC = () => {
   };
 
   const handleShirtTypeChange = (value: string) => {
-    // when shirt type changes, clear selected size
-    setForm((f) => ({ ...f, shirt_type: value, size: "" }));
+    setForm((f) => ({ ...f, shirt_type: value as Id<"shirt_types">, size: "" }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.print_id || !form.shirt_type || !form.size || !form.amount) return;
+    const isDefault = form.print_id === "default";
 
-    const payload = {
-      print_id: form.print_id as Id<"prints">,
-      print_type: getPrintName(form.print_id as Id<"prints">),
-      shirt_type: form.shirt_type as Id<"shirt_types">,
-      size: form.size as Id<"shirt_sizes">,
-      amount: Number(form.amount),
-      
-    };
+    if (!form.amount || (!isDefault && (!form.shirt_type || !form.size))) return;
 
     try {
       if (editing) {
-        await updatePricing({ id: editing._id, ...payload });
-        // update local copy
-        setLocalRows((prev) =>
-          prev.map((r) => (String(r._id) === String(editing._id) ? { ...r, ...payload } : r))
-        );
+        if (isDefault) {
+          await upsertDefault({
+            amount: Number(form.amount),
+          });
+          setLocalRows((prev) => {
+            const exists = prev.find((r) => r.print_id === "default");
+            if (exists) return prev.map((r) => r.print_id === "default" ? { ...r, amount: Number(form.amount) } : r);
+            return [...prev, { _id: "" as any, print_id: "default", print_type: "Default", shirt_type: "default", size: "default", amount: Number(form.amount), created_at: Date.now() }];
+          });
+        } else {
+          await updatePricing({
+            id: editing._id,
+            print_id: form.print_id as Id<"prints">,
+            shirt_type: form.shirt_type as Id<"shirt_types">,
+            size: form.size as Id<"shirt_sizes">,
+            amount: Number(form.amount),
+            print_type: getPrintName(form.print_id as Id<"prints">),
+          });
+          setLocalRows((prev) =>
+            prev.map((r) =>
+              r._id === editing._id
+                ? { ...r, print_id: form.print_id as Id<"prints">, shirt_type: form.shirt_type as Id<"shirt_types">, size: form.size as Id<"shirt_sizes">, amount: Number(form.amount) }
+                : r
+            )
+          );
+        }
       } else {
-        await createPricing(payload);
-        // best-effort local update (server will re-sync via query hook)
-        setLocalRows((prev) => [...prev, { ...(payload as any), _id: "" as Id<"print_pricing"> }]);
+        if (isDefault) {
+          await upsertDefault({
+            description: "Default pricing",
+            amount: Number(form.amount),
+          });
+          setLocalRows((prev) => [
+            ...prev,
+            { _id: "" as any, print_id: "default", print_type: "Default", shirt_type: "default", size: "default", amount: Number(form.amount), created_at: Date.now() },
+          ]);
+        } else {
+          await createPricing({
+            print_id: form.print_id as Id<"prints">,
+            shirt_type: form.shirt_type as Id<"shirt_types">,
+            size: form.size as Id<"shirt_sizes">,
+            amount: Number(form.amount),
+            print_type: getPrintName(form.print_id as Id<"prints">),
+          });
+          setLocalRows((prev) => [
+            ...prev,
+            {
+              _id: "" as Id<"print_pricing">,
+              print_id: form.print_id as Id<"prints">,
+              shirt_type: form.shirt_type as Id<"shirt_types">,
+              size: form.size as Id<"shirt_sizes">,
+              amount: Number(form.amount),
+              print_type: getPrintName(form.print_id as Id<"prints">),
+              created_at: Date.now(),
+            },
+          ]);
+        }
       }
     } catch (err) {
-      console.error("Failed to save pricing:", err);
-      // optionally show a toast / notification
+      console.error(err);
     } finally {
       setForm({ ...emptyForm });
       setEditing(null);
@@ -135,9 +165,9 @@ const PrintPricing: React.FC = () => {
   const handleEdit = (row: Pricing) => {
     setEditing(row);
     setForm({
-      print_id: String(row.print_id),
-      shirt_type: String(row.shirt_type),
-      size: String(row.size),
+      print_id: row.print_id,
+      shirt_type: row.shirt_type,
+      size: row.size,
       amount: String(row.amount),
     });
     setIsModalOpen(true);
@@ -153,7 +183,20 @@ const PrintPricing: React.FC = () => {
     }
   };
 
-  // loading guard
+  const getDefaultPricing = () => localRows.find((r) => r.print_id === "default");
+
+  const openDefaultModal = () => {
+    const defaultRow = getDefaultPricing();
+    setEditing(defaultRow ?? null);
+    setForm({
+      print_id: "default",
+      shirt_type: defaultRow?.shirt_type ?? "default",
+      size: defaultRow?.size ?? "default",
+      amount: defaultRow?.amount ? String(defaultRow.amount) : "",
+    });
+    setIsModalOpen(true);
+  };
+
   if (!pricing || !printTypes || !shirtTypes || !sizes) {
     return (
       <div className="flex justify-center items-center py-10">
@@ -170,7 +213,6 @@ const PrintPricing: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-700">Pricing of Prints</h2>
           <p className="text-gray-600 text-sm">Setup pricing per print, shirt type & size</p>
         </div>
-
         <button
           onClick={openAddModal}
           className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium"
@@ -181,34 +223,54 @@ const PrintPricing: React.FC = () => {
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {localRows.length === 0 ? (
-          <div className="p-6 text-center">
-            <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600 text-sm">No pricing records found</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {["Print Type", "Shirt Type", "Size (category)", "Amount (₱)", "Created At"].map(
-                    (col) => (
-                      <th
-                        key={col}
-                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
-                      >
-                        {col}
-                      </th>
-                    )
-                  )}
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                {["Print Type", "Shirt Type", "Size (category)", "Amount (₱)", "Created At"].map(
+                  (col) => (
+                    <th
+                      key={col}
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                    >
+                      {col}
+                    </th>
+                  )
+                )}
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Actions
+                </th>
+              </tr>
+            </thead>
 
-              <tbody className="bg-white divide-y divide-gray-200">
-                {localRows.map((row) => {
+            <tbody className="bg-white divide-y divide-gray-200">
+              {/* Default Row */}
+              <tr className="bg-blue-50 hover:bg-blue-100">
+                <td className="px-6 py-4 text-sm font-semibold">Default</td>
+                <td colSpan={2} className="px-6 py-4 text-gray-500">
+                  Applies when no specific pricing is set
+                </td>
+                <td className="px-6 py-4 text-sm">
+                  {getDefaultPricing()?.amount
+                    ? `₱${getDefaultPricing()?.amount.toLocaleString()}`
+                    : "—"}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-500">—</td>
+                <td className="px-6 py-4 text-right">
+                  <button
+                    onClick={openDefaultModal}
+                    className="flex items-center gap-1 text-teal-600"
+                  >
+                    {getDefaultPricing() ? <Edit className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                    {getDefaultPricing() ? "Edit" : "Set"}
+                  </button>
+                </td>
+              </tr>
+
+              {/* Existing rows */}
+              {localRows
+                .filter((r) => r.print_id !== "default")
+                .map((row) => {
                   const printName = getPrintName(row.print_id);
                   const shirtName = getShirtTypeName(row.shirt_type);
                   const sizeObj = getSizeObj(row.size);
@@ -223,24 +285,40 @@ const PrintPricing: React.FC = () => {
                         {sizeLabel}{" "}
                         <span className="text-gray-500 text-xs">({sizeCategory})</span>
                       </td>
-                      <td className="px-6 py-4 text-sm">₱{row.amount.toLocaleString()}</td>
+                      <td className="px-6 py-4 text-sm">
+                        {row.amount === 0 ? getDefaultPricing()?.amount : row.amount
+                          ? `₱${row.amount.toLocaleString()}`
+                          : "—"}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {row.created_at ? new Date(row.created_at).toLocaleDateString() : "-"}
                       </td>
-
                       <td className="px-6 py-4 text-right space-x-2">
-                        <button
-                          aria-label="Edit pricing"
-                          onClick={() => handleEdit(row)}
-                          className="px-2 py-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
+                        {row.amount === 0 ? (
+                          <button
+                            aria-label="Set up pricing"
+                            title="Set up pricing"
+                            onClick={() => handleEdit(row)}
+                            className="px-4 py-1 text-xs font-medium text-green-600 rounded-lg hover:bg-green-100 transition"
+                          >
+                            <Plus className="h-5 w-5" />
+                          </button>
+                        ) : (
+                          <button
+                            title="Edit pricing"
+                            aria-label="Edit pricing"
+                            onClick={() => handleEdit(row)}
+                            className="px-4 py-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        )}
 
                         <button
                           aria-label="Delete pricing"
+                          title="Delete pricing"
                           onClick={() => handleDelete(row._id)}
-                          className="px-2 py-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md"
+                          className="px-3 py-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -248,10 +326,9 @@ const PrintPricing: React.FC = () => {
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Modal */}
@@ -282,7 +359,9 @@ const PrintPricing: React.FC = () => {
                 <select
                   aria-label="Select print type"
                   value={form.print_id}
-                  onChange={(e) => setForm((f) => ({ ...f, print_id: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, print_id: e.target.value as Id<"prints"> | "default" }))
+                  }
                   className="w-full border rounded-lg px-3 py-2 text-sm"
                   required
                 >
@@ -292,6 +371,7 @@ const PrintPricing: React.FC = () => {
                       {p.print_type ?? "Unnamed"}
                     </option>
                   ))}
+                  <option value="default">Default</option>
                 </select>
               </div>
 
@@ -303,7 +383,8 @@ const PrintPricing: React.FC = () => {
                   value={form.shirt_type}
                   onChange={(e) => handleShirtTypeChange(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm"
-                  required
+                  required={form.print_id !== "default"}
+                  disabled={form.print_id === "default"}
                 >
                   <option value="">Select shirt type</option>
                   {shirtTypes.map((t) => (
@@ -320,10 +401,12 @@ const PrintPricing: React.FC = () => {
                 <select
                   aria-label="Select size"
                   value={form.size}
-                  onChange={(e) => setForm((f) => ({ ...f, size: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, size: e.target.value as Id<"shirt_sizes"> }))
+                  }
                   className="w-full border rounded-lg px-3 py-2 text-sm"
-                  required
-                  disabled={!form.shirt_type}
+                  required={form.print_id !== "default"}
+                  disabled={form.print_id === "default" || !form.shirt_type || form.shirt_type === "default"}
                 >
                   <option value="">Select size</option>
                   {availableSizes.map((s) => (

@@ -55,7 +55,6 @@ export const approveDesign = mutation({
     const design = await ctx.db.get(designId);
     if (!design) throw new Error("Design not found");
 
-    // --- Get linked request ---
     const request = await ctx.db.get(design.request_id);
     if (!request) throw new Error("Design request not found");
 
@@ -64,47 +63,43 @@ export const approveDesign = mutation({
 
     const revisionCount = design.revision_count ?? 0;
 
-    // --- Fetch requested sizes ---
     const requestSizes = await ctx.db
       .query("request_sizes")
       .withIndex("by_request", (q) => q.eq("request_id", design.request_id))
       .collect();
 
-    if (!requestSizes.length) {
-      throw new Error("No shirt sizes found for request");
-    }
+    if (!requestSizes.length) throw new Error("No shirt sizes found for request");
 
-    // --- Resolve shirt type ---
     const normalizedType = request.tshirt_type.trim();
     const shirtTypeDoc = await ctx.db
       .query("shirt_types")
       .filter((q) => q.eq(q.field("type_name"), normalizedType))
       .first();
 
-    if (!shirtTypeDoc) {
-      throw new Error(`Shirt type "${normalizedType}" not found`);
-    }
+    if (!shirtTypeDoc) throw new Error(`Shirt type "${normalizedType}" not found`);
 
-    // --- Fetch pricing ---
     const allPricing = await ctx.db.query("print_pricing").collect();
 
-    // --- Build billing.shirts[] ---
+    // --- Get default pricing for fallback ---
+    const defaultPricing = allPricing.find((p) => p.print_id === "default");
+
+    if (!defaultPricing) throw new Error("Default print pricing not set");
+
     const shirts = [];
     let shirtsTotal = 0;
     let shirtCount = 0;
 
     for (const rs of requestSizes) {
-      const pricing = allPricing.find(
+      let pricing = allPricing.find(
         (p) =>
           p.print_type === request.print_type &&
           p.size === rs.size_id &&
           p.shirt_type === shirtTypeDoc._id
       );
 
-      if (!pricing) {
-        throw new Error(
-          `No print pricing for size=${rs.size_id} type=${shirtTypeDoc.type_name}`
-        );
+      // Use default if no pricing found or pricing amount is 0
+      if (!pricing || pricing.amount === 0) {
+        pricing = defaultPricing;
       }
 
       const totalPrice = pricing.amount * rs.quantity;
@@ -121,7 +116,6 @@ export const approveDesign = mutation({
       shirtCount += rs.quantity;
     }
 
-    // --- Fetch designer profile ---
     const designerProfile = await ctx.db
       .query("designers")
       .withIndex("by_user", (q) => q.eq("user_id", design.designer_id))
@@ -129,7 +123,6 @@ export const approveDesign = mutation({
 
     if (!designerProfile) throw new Error("Designer profile not found");
 
-    // --- Fetch designer pricing ---
     const pricing =
       (await ctx.db
         .query("designer_pricing")
@@ -147,7 +140,6 @@ export const approveDesign = mutation({
     const baseDesignerFee = pricing.normal_amount ?? 0;
     const revisionFeeUnit = pricing.revision_fee ?? 0;
 
-    // --- Designer + revision logic ---
     const designerFee = shirtCount <= 15 ? baseDesignerFee : 0;
 
     const revisionFee =
@@ -157,14 +149,11 @@ export const approveDesign = mutation({
           : 0
         : revisionCount * revisionFeeUnit;
 
-    // --- Starting amount ---
     const startingAmount =
       shirtsTotal + revisionFee + (shirtCount <= 15 ? designerFee : 0);
 
-    // --- Update design status ---
     await ctx.db.patch(designId, { status: "approved" });
 
-    // --- Create billing if not exists ---
     const existingBilling = await ctx.db
       .query("billing")
       .withIndex("by_design", (q) => q.eq("design_id", designId))
@@ -175,14 +164,11 @@ export const approveDesign = mutation({
         shirts,
         revision_fee: revisionFee,
         designer_fee: designerFee,
-
         starting_amount: startingAmount,
         final_amount: 0,
-
         negotiation_history: [],
         negotiation_rounds: 0,
         status: "pending",
-
         client_id: design.client_id,
         designer_id: design.designer_id,
         design_id: designId,
@@ -190,7 +176,6 @@ export const approveDesign = mutation({
       });
     }
 
-    // --- Notifications ---
     await ctx.runMutation(api.notifications.createNotification, {
       userId: design.designer_id,
       userType: "designer",

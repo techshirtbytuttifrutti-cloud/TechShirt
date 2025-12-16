@@ -41,13 +41,14 @@ const PricingManager: React.FC = () => {
     if (pricings) setLocalPricings(pricings);
   }, [pricings]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!editingPricing) return;
 
   const isDefault = editingPricing.designer_id === "default";
 
   if (isDefault) {
+    // Remove 'id' because upsertDefaultPricing handles insert/update internally
     await upsertDefaultPricing({
       normal_amount: Number(formData.normalAmount),
       revision_fee: formData.revisionFee ? Number(formData.revisionFee) : undefined,
@@ -66,6 +67,7 @@ const PricingManager: React.FC = () => {
   setEditingPricing(null);
   setIsModalOpen(false);
 };
+
 
   const handleEdit = (pricing: Pricing) => {
     setEditingPricing(pricing);

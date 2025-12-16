@@ -230,7 +230,6 @@ export const submitAddOns = mutation({
   },
 });
 
-
 export const updateAddOnsStatus = mutation({
   args: {
     addOnsId: v.id("addOns"),
@@ -266,13 +265,19 @@ export const updateAddOnsStatus = mutation({
 
       const printPricing = await ctx.db.query("print_pricing").collect();
 
+      // Default pricing
+      const defaultPricing = printPricing.find((p) => p.print_id === "default")?.amount ?? 0;
+
       const priceMap: Record<string, number> = {};
       printPricing.forEach((p) => {
-        priceMap[p.size as string] = p.amount;
+        if (p.print_id !== "default") priceMap[p.size as string] = p.amount;
       });
 
       quantityPrice = addOnSizes.reduce((total, s) => {
-        const unitPrice = priceMap[s.sizeId as string] || 0;
+        // Use specific price, fallback to default if 0 or missing
+        const unitPrice = priceMap[s.sizeId as string] && priceMap[s.sizeId as string] > 0
+          ? priceMap[s.sizeId as string]
+          : defaultPricing;
         return total + unitPrice * s.quantity;
       }, 0);
     }
@@ -313,9 +318,7 @@ export const updateAddOnsStatus = mutation({
     await ctx.runMutation(api.history.addHistory, {
       userId: adminId,
       userType: "admin",
-      action: `${
-        status === "approved" ? "Approved" : "Declined"
-      } add-ons request (${addOns.type})`,
+      action: `${status === "approved" ? "Approved" : "Declined"} add-ons request (${addOns.type})`,
       actionType: "addon_approval",
       relatedId: addOnsId,
       relatedType: "addon",
@@ -331,9 +334,7 @@ export const updateAddOnsStatus = mutation({
       userId: addOns.userId,
       userType: "client",
       action: `Your add-ons request was ${status}${
-        status === "declined"
-          ? ` (Reason: ${adminReason || "No reason provided"})`
-          : ""
+        status === "declined" ? ` (Reason: ${adminReason || "No reason provided"})` : ""
       }`,
       actionType: "addon_approval",
       relatedId: addOnsId,
@@ -358,18 +359,14 @@ export const updateAddOnsStatus = mutation({
       // -----------------------------
       const billing = await ctx.db
         .query("billing")
-        .withIndex("by_design", (q) =>
-          q.eq("design_id", addOns.designId)
-        )
+        .withIndex("by_design", (q) => q.eq("design_id", addOns.designId))
         .first();
 
       if (billing) {
         await ctx.db.patch(billing._id, {
-          addons_shirt_price:
-            (billing.addons_shirt_price || 0) + quantityPrice,
+          addons_shirt_price: (billing.addons_shirt_price || 0) + quantityPrice,
           addons_fee: (billing.addons_fee || 0) + fee,
-          starting_amount:
-            (billing.starting_amount || 0) + quantityPrice + fee,
+          starting_amount: (billing.starting_amount || 0) + quantityPrice + fee,
           status: "pending",
           final_amount: 0,
         });
@@ -393,9 +390,6 @@ export const updateAddOnsStatus = mutation({
         "pending_pickup",
       ];
 
-      // Rule:
-      // - if already in_progress → do nothing
-      // - otherwise → force to in_progress
       if (
         design.status !== "in_progress" &&
         forceBackToInProgress.includes(design.status as DesignStatus)
