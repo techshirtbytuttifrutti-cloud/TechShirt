@@ -276,9 +276,7 @@ const PrintPricing: React.FC = () => {
                         <span className="text-gray-500 text-xs">({sizeCategory})</span>
                       </td>
                       <td className="px-6 py-4 text-sm">
-                        {row.amount === 0 ? getDefaultPricing()?.amount : row.amount
-                          ? `₱${row.amount.toLocaleString()}`
-                          : "—"}
+                       {row.amount ? `₱${row.amount.toLocaleString()}` : "—"}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {row.created_at ? new Date(row.created_at).toLocaleDateString() : "-"}
