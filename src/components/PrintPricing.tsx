@@ -77,11 +77,6 @@ const PrintPricing: React.FC = () => {
     return sizes.filter((s) => String(s.type) === String(form.shirt_type));
   }, [form.shirt_type, sizes]);
 
-  const openAddModal = () => {
-    setEditing(null);
-    setForm({ ...emptyForm });
-    setIsModalOpen(true);
-  };
 
   const handleShirtTypeChange = (value: string) => {
     setForm((f) => ({ ...f, shirt_type: value as Id<"shirt_types">, size: "" }));
@@ -213,12 +208,7 @@ const PrintPricing: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-700">Pricing of Prints</h2>
           <p className="text-gray-600 text-sm">Setup pricing per print, shirt type & size</p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium"
-        >
-          <Plus className="h-4 w-4" /> Add Pricing
-        </button>
+       
       </div>
 
       {/* Table */}
