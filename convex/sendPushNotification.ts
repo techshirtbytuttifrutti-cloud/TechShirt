@@ -78,8 +78,8 @@ export const sendPushNotification = action({
           notification: {
             title,
             body,
-            icon: "https://techshirt-by-tuttifrutti.vercel.app/logo192.png",
-            badge: "https://techshirt-by-tuttifrutti.vercel.app/logo192.png",
+            icon: "https://techshirt.app/logo192.png",
+            badge: "https://techshirt.vercel.app/logo192.png",
             tag: data?.type || "notification",
             requireInteraction: false,
             vibrate: [200, 100, 200],
@@ -95,7 +95,7 @@ export const sendPushNotification = action({
             ],
           },
           fcmOptions: {
-            link: "https://techshirt-by-tuttifrutti.vercel.app/notifications",
+            link: "https://techshirt.app/notifications",
           },
         },
         data: data || {},
@@ -172,8 +172,8 @@ export const sendPushNotificationToMultipleUsers = action({
             notification: {
               title,
               body,
-              icon: "https://techshirt-by-tuttifrutti.vercel.app/logo192.png",
-              badge: "https://techshirt-by-tuttifrutti.vercel.app/logo192.png",
+              icon: "https://techshirt.vercel.app/logo192.png",
+              badge: "https://techshirt.vercel.app/logo192.png",
               tag: data?.type || "notification",
               requireInteraction: false,
               vibrate: [200, 100, 200],
@@ -189,7 +189,7 @@ export const sendPushNotificationToMultipleUsers = action({
               ],
             },
             fcmOptions: {
-              link: "https://techshirt-by-tuttifrutti.vercel.app/notifications",
+              link: "https://techshirt.vercel.app/notifications",
             },
           },
           data: data || {},

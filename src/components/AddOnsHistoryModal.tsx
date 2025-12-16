@@ -14,8 +14,6 @@ interface ShirtSize {
   type?: string;
 }
 
-
-
 interface Props {
   designId: Id<"design">;
   onClose: () => void;
@@ -23,8 +21,6 @@ interface Props {
   currentShirtTypeId: string;
   currentDesignStatus: string;
 }
-
-// ... imports remain the same
 
 export default function AddOnsHistoryModal({
   designId,
@@ -48,13 +44,6 @@ export default function AddOnsHistoryModal({
   const submitAddOns = useMutation(api.addOns.submitAddOns);
   const uploadImageToStorage = useAction(api.files.uploadFileToStorage);
 
-  const [_responseModal, setResponseModal] = useState({
-    isOpen: false,
-    type: "success",
-    title: "",
-    message: "",
-  });
-
   const [isAddOnsModalOpen, setIsAddOnsModalOpen] = useState(false);
 
   const handleCancel = async (addOnId: Id<"addOns">) => {
@@ -62,8 +51,6 @@ export default function AddOnsHistoryModal({
     setCancelingId(addOnId);
     try {
       await cancelAddOn({ addOnsId: addOnId });
-    } catch {
-      alert("Failed to cancel add-on.");
     } finally {
       setCancelingId(null);
     }
@@ -81,8 +68,8 @@ export default function AddOnsHistoryModal({
         initial={{ scale: 0.95 }}
         animate={{ scale: 1 }}
       >
-        {/* Header with New Add-On button */}
-        <div className="flex justify-between items-center p-4 border-b">
+        {/* Header */}
+        <div className="flex justify-between items-center p-4 ">
           <h2 className="text-lg font-semibold">Add-Ons History</h2>
           <div className="flex items-center gap-2">
             <button
@@ -101,7 +88,7 @@ export default function AddOnsHistoryModal({
           </div>
         </div>
 
-        {/* Add-Ons List */}
+        {/* List */}
         <div className="p-4 space-y-4">
           {addOns.length === 0 && (
             <p className="text-sm text-gray-500 text-center">
@@ -119,7 +106,7 @@ export default function AddOnsHistoryModal({
           ))}
         </div>
 
-        {/* AddOnsModal */}
+        {/* Add-ons modal */}
         {isAddOnsModalOpen && reviewer?._id && (
           <AddOnsModal
             onClose={() => setIsAddOnsModalOpen(false)}
@@ -127,67 +114,48 @@ export default function AddOnsHistoryModal({
             currentShirtTypeId={currentShirtTypeId}
             currentDesignStatus={currentDesignStatus}
             onSubmit={async (payload) => {
-              try {
-                if (!payload.addOnType) {
-                  throw new Error("Please select a valid add-on type.");
-                }
+              const imageStorageIds: Id<"_storage">[] = [];
 
-                const imageStorageIds: Id<"_storage">[] = [];
-                if (payload.images?.length) {
-                  for (const img of payload.images) {
-                    const base64Data = img.image.split(",")[1];
-                    const binaryString = atob(base64Data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                      bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    const storageId = await uploadImageToStorage({
-                      fileBytes: bytes.buffer,
-                      fileName: `addon-${Date.now()}.jpg`,
-                    });
-                    imageStorageIds.push(storageId as Id<"_storage">);
+              if (payload.images?.length) {
+                for (const img of payload.images) {
+                  const base64Data = img.image.split(",")[1];
+                  const binary = atob(base64Data);
+                  const bytes = new Uint8Array(binary.length);
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
                   }
-                }
 
-                await submitAddOns({
-                  designId,
-                  userId: reviewer._id,
-                  addOnType: payload.addOnType as "design" | "quantity" | "both",
-                  reason: payload.reason,
-                  sizeUpdates: payload.sizeUpdates.map((s) => ({
-                    sizeId: s.sizeId as Id<"shirt_sizes">,
-                    quantity: s.quantity,
-                  })),
-                  imageStorageIds: imageStorageIds.length ? imageStorageIds : undefined,
-                });
-
-                if (payload.newStatus) {
-                  await updateDesignStatus({
-                    designId,
-                    status: payload.newStatus as any,
+                  const storageId = await uploadImageToStorage({
+                    fileBytes: bytes.buffer,
+                    fileName: `addon-${Date.now()}.jpg`,
                   });
-                }
 
-                setResponseModal({
-                  isOpen: true,
-                  type: "success",
-                  title: "Success!",
-                  message:
-                    "Add-ons submitted successfully! The admin team has been notified.",
-                });
-                setIsAddOnsModalOpen(false);
-              } catch (err) {
-                console.error(err);
-                setResponseModal({
-                  isOpen: true,
-                  type: "error",
-                  title: "Error",
-                  message:
-                    err instanceof Error
-                      ? err.message
-                      : "Failed to submit add-ons. Please try again.",
+                  imageStorageIds.push(storageId as Id<"_storage">);
+                }
+              }
+
+              await submitAddOns({
+                designId,
+                userId: reviewer._id,
+                addOnType: payload.addOnType as "design" | "quantity" | "both",
+                reason: payload.reason,
+                sizeUpdates: payload.sizeUpdates.map((s) => ({
+                  sizeId: s.sizeId as Id<"shirt_sizes">,
+                  quantity: s.quantity,
+                })),
+                imageStorageIds: imageStorageIds.length
+                  ? imageStorageIds
+                  : undefined,
+              });
+
+              if (payload.newStatus) {
+                await updateDesignStatus({
+                  designId,
+                  status: payload.newStatus as any,
                 });
               }
+
+              setIsAddOnsModalOpen(false);
             }}
           />
         )}
@@ -196,7 +164,10 @@ export default function AddOnsHistoryModal({
   );
 }
 
-// Child component with improved Cancel button
+/* =========================
+   Child Component
+========================= */
+
 function AddOnItem({
   addOn,
   cancelingId,
@@ -206,16 +177,27 @@ function AddOnItem({
   cancelingId: Id<"addOns"> | null;
   handleCancel: (id: Id<"addOns">) => void;
 }) {
-  const imageIds = useQuery(api.addOns.getAddOnsImages, { addOnsId: addOn._id }) ?? [];
-  const imageUrls = useQuery(api.getPreviewUrl.getPreviewUrls, { storageIds: imageIds }) ?? [];
+  const imageIds =
+    useQuery(api.addOns.getAddOnsImages, { addOnsId: addOn._id }) ?? [];
+  const imageUrls =
+    useQuery(api.getPreviewUrl.getPreviewUrls, {
+      storageIds: imageIds,
+    }) ?? [];
 
-  const displayedReason =
-    addOn.status === "declined" ? addOn.adminNote ?? "No admin note provided." : addOn.reason ?? "—";
+  const addOnSizes =
+    addOn.type === "quantity" || addOn.type === "designAndQuantity"
+      ? useQuery(api.addOns.getAddOnsSizes, { addOnsId: addOn._id }) ?? []
+      : [];
+
+  const shirtSizes = useQuery(api.shirt_sizes.getAll) ?? [];
+  const sizeLabelMap = new Map(shirtSizes.map((s: any) => [s._id, s.size_label]));
 
   return (
-    <div className="border rounded-xl p-4 bg-gray-50 space-y-3">
+    <div className="border border-gray-400 rounded-xl p-4 bg-gray-50 space-y-3">
       <div className="flex justify-between items-center">
-        <span className="text-sm font-semibold capitalize">{addOn.type.replace("And", " & ")}</span>
+        <span className="text-sm font-semibold capitalize">
+          {addOn.type.replace("And", " & ")}
+        </span>
         <span
           className={`text-xs font-semibold px-2 py-1 rounded-full ${
             addOn.status === "approved"
@@ -229,36 +211,70 @@ function AddOnItem({
         </span>
       </div>
 
+      {/* Images */}
       {imageUrls.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          {imageUrls.map((url, idx) => (
-            <div
-              key={idx}
-              className="w-full h-20 rounded-lg border border-gray-200 overflow-hidden bg-white"
-            >
-              <img
-                src={url || "https://placehold.co/400x300?text=No+Image"}
-                alt="Add-on"
-                className="w-full h-full object-cover"
-              />
-            </div>
+          {imageUrls.map((url, i) => (
+            <img
+              key={i}
+              src={url || "https://placehold.co/400x300?text=No+Image"}
+              alt={`Add-on image ${i + 1}`}
+              className="h-20 w-full object-cover rounded-lg border border-gray-300"
+            />
           ))}
         </div>
       )}
 
-      <p className="text-sm text-gray-700">
-        <strong>Reason:</strong> {displayedReason}
-      </p>
-      {typeof addOn.fee === "number" && addOn.fee > 0 && (
-        <p className="text-sm font-medium">Fee: ₱{addOn.fee.toFixed(2)}</p>
+      {/* Client Reason */}
+      {addOn.reason && (
+        <p className="text-sm text-gray-700">
+          <strong>Reason:</strong> {addOn.reason}
+        </p>
       )}
+
+      {/* Admin Note */}
+      {addOn.status === "declined" && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">
+          <strong>Admin Note:</strong> {addOn.adminNote || "No admin note provided."}
+        </p>
+      )}
+
+      {/* Quantity Breakdown */}
+      {(addOn.type === "quantity" || addOn.type === "designAndQuantity") &&
+        addOnSizes.length > 0 && (
+          <div className="bg-white border border-gray-400 rounded-lg p-3 space-y-2">
+            <p className="text-sm font-semibold">Quantity Breakdown</p>
+
+            {addOnSizes.map((s: any) => (
+              <div key={s._id} className="flex justify-between text-sm">
+                <span>
+                  {sizeLabelMap.get(s.sizeId) ?? "Unknown Size"} × {s.quantity}
+                </span>
+              </div>
+            ))}
+
+            {addOn.status === "approved" && (
+              <div className="pt-2 flex justify-between font-semibold text-sm">
+                <span>Total Amount</span>
+                <span>₱{addOn.price.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+      {typeof addOn.fee === "number" && addOn.fee > 0 && (
+        <p className="text-sm font-medium">
+          Additional Fee: ₱{addOn.fee.toFixed(2)}
+        </p>
+      )}
+
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <Clock size={14} />
         {new Date(addOn.created_at).toLocaleString()}
       </div>
 
       {addOn.status === "pending" && (
-        <div className="flex justify-end mt-2">
+        <div className="flex justify-end">
           <button
             onClick={() => handleCancel(addOn._id)}
             disabled={cancelingId === addOn._id}

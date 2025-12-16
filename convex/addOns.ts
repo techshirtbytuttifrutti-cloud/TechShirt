@@ -249,9 +249,9 @@ export const updateAddOnsStatus = mutation({
     const addOns = await ctx.db.get(addOnsId);
     if (!addOns) throw new Error("Add-ons request not found.");
 
-    // -----------------------------
-    // Calculate quantity-based pricing
-    // -----------------------------
+    // ======================================================
+    // Calculate quantity-based pricing (APPROVAL ONLY)
+    // ======================================================
     let quantityPrice = 0;
 
     if (
@@ -265,35 +265,43 @@ export const updateAddOnsStatus = mutation({
 
       const printPricing = await ctx.db.query("print_pricing").collect();
 
-      // Default pricing
-      const defaultPricing = printPricing.find((p) => p.print_id === "default")?.amount ?? 0;
+      const defaultPricing =
+        printPricing.find((p) => p.print_id === "default")?.amount ?? 0;
 
       const priceMap: Record<string, number> = {};
       printPricing.forEach((p) => {
-        if (p.print_id !== "default") priceMap[p.size as string] = p.amount;
+        if (p.print_id !== "default") {
+          priceMap[p.size as string] = p.amount;
+        }
       });
 
       quantityPrice = addOnSizes.reduce((total, s) => {
-        // Use specific price, fallback to default if 0 or missing
-        const unitPrice = priceMap[s.sizeId as string] && priceMap[s.sizeId as string] > 0
-          ? priceMap[s.sizeId as string]
-          : defaultPricing;
+        const unitPrice =
+          priceMap[s.sizeId as string] && priceMap[s.sizeId as string] > 0
+            ? priceMap[s.sizeId as string]
+            : defaultPricing;
+
         return total + unitPrice * s.quantity;
       }, 0);
     }
 
-    // -----------------------------
+    // ======================================================
     // Update add-ons record
-    // -----------------------------
+    // ======================================================
     await ctx.db.patch(addOnsId, {
       status,
-      price: fee,
+      price: status === "approved" ? quantityPrice : 0,
+      fee: status === "approved" ? fee : 0,
+
+      // ✅ IMPORTANT: store admin reason as adminNote if declined
+      adminNote: status === "declined" ? adminReason ?? "" : undefined,
+
       updated_at: Date.now(),
     });
 
-    // -----------------------------
+    // ======================================================
     // Notifications
-    // -----------------------------
+    // ======================================================
     const adminUser = await ctx.db.get(adminId);
     const adminName = adminUser
       ? `${adminUser.firstName} ${adminUser.lastName}`
@@ -312,13 +320,15 @@ export const updateAddOnsStatus = mutation({
       message,
     });
 
-    // -----------------------------
+    // ======================================================
     // History logs
-    // -----------------------------
+    // ======================================================
     await ctx.runMutation(api.history.addHistory, {
       userId: adminId,
       userType: "admin",
-      action: `${status === "approved" ? "Approved" : "Declined"} add-ons request (${addOns.type})`,
+      action: `${
+        status === "approved" ? "Approved" : "Declined"
+      } add-ons request (${addOns.type})`,
       actionType: "addon_approval",
       relatedId: addOnsId,
       relatedType: "addon",
@@ -334,7 +344,9 @@ export const updateAddOnsStatus = mutation({
       userId: addOns.userId,
       userType: "client",
       action: `Your add-ons request was ${status}${
-        status === "declined" ? ` (Reason: ${adminReason || "No reason provided"})` : ""
+        status === "declined"
+          ? ` (Reason: ${adminReason || "No reason provided"})`
+          : ""
       }`,
       actionType: "addon_approval",
       relatedId: addOnsId,
@@ -348,42 +360,33 @@ export const updateAddOnsStatus = mutation({
     });
 
     // ======================================================
-    // ✅ ONLY ON APPROVAL: update billing & design
+    // ONLY ON APPROVAL: update billing & design
     // ======================================================
     if (status === "approved") {
       const design = await ctx.db.get(addOns.designId);
       if (!design) throw new Error("Design not found.");
 
-      // -----------------------------
-      // Billing update
-      // -----------------------------
       const billing = await ctx.db
         .query("billing")
-        .withIndex("by_design", (q) => q.eq("design_id", addOns.designId))
+        .withIndex("by_design", (q) =>
+          q.eq("design_id", addOns.designId)
+        )
         .first();
 
       if (billing) {
         await ctx.db.patch(billing._id, {
-          addons_shirt_price: (billing.addons_shirt_price || 0) + quantityPrice,
+          addons_shirt_price:
+            (billing.addons_shirt_price || 0) + quantityPrice,
           addons_fee: (billing.addons_fee || 0) + fee,
-          starting_amount: (billing.starting_amount || 0) + quantityPrice + fee,
+          starting_amount:
+            (billing.starting_amount || 0) + quantityPrice + fee,
           status: "pending",
           final_amount: 0,
         });
       }
 
-      // -----------------------------
-      // Design status normalization
-      // -----------------------------
-      type DesignStatus =
-        | "approved"
-        | "in_progress"
-        | "pending_revision"
-        | "in_production"
-        | "pending_pickup"
-        | "completed";
-
-      const forceBackToInProgress: DesignStatus[] = [
+      // Force design back to in_progress if needed
+      const forceBack: string[] = [
         "approved",
         "completed",
         "in_production",
@@ -392,7 +395,7 @@ export const updateAddOnsStatus = mutation({
 
       if (
         design.status !== "in_progress" &&
-        forceBackToInProgress.includes(design.status as DesignStatus)
+        forceBack.includes(design.status)
       ) {
         await ctx.db.patch(addOns.designId, {
           status: "in_progress",
@@ -446,5 +449,19 @@ export const cancelAddOn = mutation({
   handler: async (ctx, { addOnsId }) => {
     await ctx.db.patch(addOnsId, { status: "cancelled" });
     return true;
+  },
+});
+
+export const getAddOnsSizes = query({
+  args: {
+    addOnsId: v.id("addOns"),
+  },
+  handler: async (ctx, { addOnsId }) => {
+    const sizes = await ctx.db
+      .query("addOnsSizes")
+      .filter((q) => q.eq(q.field("addOnsId"), addOnsId))
+      .collect();
+
+    return sizes;
   },
 });
