@@ -114,7 +114,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
           {/* Header */}
           <div className="flex justify-between items-center">
             <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
-              TechShirt Printing Services
+              JCC Printing Services
             </h2>
             <button
               type="button"

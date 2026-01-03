@@ -732,7 +732,7 @@ const FabricCanvas: React.FC<FabricCanvasProps> = ({
 
       {showSketch && requestId && (
             <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-              <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-4">
+              <div className="bg-white rounded-lg shadow-lg max-w-lg w-[90%] p-4">
                 <h2 className="text-lg font-semibold mb-3">Request Sketch</h2>
                 <CanvasSketch requestId={requestId} />
                 <div className="mt-4 flex justify-end">

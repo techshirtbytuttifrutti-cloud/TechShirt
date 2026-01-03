@@ -1,10 +1,9 @@
-// src/components/ShirtSizeManager.tsx
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Edit, Trash2, Loader, Plus, X, FileText } from "lucide-react";
+import { Edit, Trash2, Loader, Plus, X } from "lucide-react";
 
 interface ShirtSize {
   _id: Id<"shirt_sizes">;
@@ -19,7 +18,7 @@ interface ShirtSize {
 
 interface ShirtType {
   _id: Id<"shirt_types">;
-  type_name: string;          // ✅ FIXED
+  type_name: string;
   description?: string;
 }
 
@@ -52,7 +51,6 @@ const ShirtSizeManager: React.FC = () => {
   const getTypeName = (id: Id<"shirt_types">) =>
     shirtTypes?.find((t) => t._id === id)?.type_name ?? "Unknown";
 
-  // This determines whether sleeves should be disabled
   const isJersey = (() => {
     const type = formData.type;
     if (!type) return false;
@@ -123,12 +121,18 @@ const ShirtSizeManager: React.FC = () => {
   }
 
   return (
-    <div className="p-6 bg-gradient-to-br from-white to-gray-50 shadow rounded-xl">
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-4 sm:p-6 bg-gradient-to-br from-white to-gray-50 shadow rounded-xl">
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Shirt Size Manager</h2>
-          <p className="text-gray-600">Manage shirt sizes across categories</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+            Shirt Size Manager
+          </h2>
+          <p className="text-gray-600 text-sm">
+            Manage shirt sizes across categories
+          </p>
         </div>
+
         <button
           onClick={() => {
             setEditingSize(null);
@@ -143,72 +147,86 @@ const ShirtSizeManager: React.FC = () => {
             });
             setIsModalOpen(true);
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium w-full sm:w-auto"
         >
           <Plus className="h-4 w-4" /> Add Size
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {localSizes.length === 0 ? (
-          <div className="p-6 text-center">
-            <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600 text-sm">No shirt sizes added yet</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {["Size", "Width", "Height", "Type", "Category", "Sleeve W", "Sleeve H"].map(
-                    (col) => (
-                      <th
-                        key={col}
-                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                      >
-                        {col}
-                      </th>
-                    )
-                  )}
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
+      {/* DESKTOP TABLE */}
+      <div className="hidden sm:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              {["Size", "W", "H", "Type", "Category", "Sleeve W", "Sleeve H"].map(
+                (col) => (
+                  <th
+                    key={col}
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    {col}
                   </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {localSizes.map((size) => {
-                  const typeName = getTypeName(size.type);
+                )
+              )}
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                Actions
+              </th>
+            </tr>
+          </thead>
 
-                  return (
-                    <tr key={size._id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{size.size_label}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{size.w}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{size.h}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{typeName}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{size.category}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{size.sleeves_w ?? "-"}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{size.sleeves_h ?? "-"}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                        <button
-                          onClick={() => handleEdit(size)}
-                          className="inline-flex items-center px-2 py-1 text-blue-600 hover:text-blue-800 rounded-md hover:bg-blue-50"
-                        >
-                          <Edit className="h-4 w-4 mr-1" /> Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(size._id)}
-                          className="inline-flex items-center px-2 py-1 text-red-600 hover:text-red-800 rounded-md hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" /> Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <tbody className="divide-y divide-gray-200">
+            {localSizes.map((size) => (
+              <tr key={size._id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.size_label}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.w}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.h}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{getTypeName(size.type)}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.category}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.sleeves_w ?? "-"}</td>
+                <td className="px-4 py-3 font-semibold text-base text-gray-500">{size.sleeves_h ?? "-"}</td>
+                <td className="px-4 py-3 text-right space-x-2">
+                  <button aria-label="Edit size" onClick={() => handleEdit(size)} className="text-blue-600">
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button aria-label="Delete size" onClick={() => handleDelete(size._id)} className="text-red-600">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td> 
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* MOBILE CARDS */}
+      <div className="sm:hidden space-y-3">
+        {localSizes.map((size) => (
+          <div key={size._id} className="bg-white border rounded-lg p-4 shadow-sm">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-gray-900">{size.size_label}</p>
+                <p className="text-xs text-gray-500">
+                  {getTypeName(size.type)} • {size.category}
+                </p>
+                <p className="text-sm mt-2">
+                  W {size.w} × H {size.h}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Sleeves: {size.sleeves_w ?? "-"} × {size.sleeves_h ?? "-"}
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <button aria-label="Edit size" onClick={() => handleEdit(size)} className="text-blue-600">
+                  <Edit className="h-4 w-4" />
+                </button>
+                <button aria-label="Delete size" onClick={() => handleDelete(size._id)} className="text-red-600">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
       {/* MODAL */}

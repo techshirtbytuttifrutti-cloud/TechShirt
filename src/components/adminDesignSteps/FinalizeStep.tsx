@@ -23,7 +23,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   if (!billing) {
-    return <div className="p-4 text-gray-600 text-sm">Billing information is loading...</div>;
+    return <div className="p-4 text-gray-600 text-sm"> No Billing information To Show</div>;
   }
 
   const { breakdown, invoiceNo, createdAt, addons_shirt_price = 0, addons_fee = 0, status: billStatus, final_amount } = billing;
@@ -93,7 +93,7 @@ const FinalizeDesignStep: React.FC<FinalizeDesignStepProps> = ({ design }) => {
       {/* Invoice UI */}
       <div>
         <div className="flex justify-between items-center">
-          <h2 className="text-lg sm:text-2xl font-bold text-gray-800">TechShirt Printing Services</h2>
+          <h2 className="text-lg sm:text-2xl font-bold text-gray-800">JCC Printing Services</h2>
           <button
             type="button"
             id="download-btn"

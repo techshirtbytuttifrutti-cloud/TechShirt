@@ -134,7 +134,21 @@ export default function AddOnsModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-lg rounded-lg shadow-xl p-6 space-y-6 animate-fadeIn max-h-[80vh] overflow-y-auto">
+      <div className="
+    bg-white
+    w-[92%]
+    sm:w-[90%]
+    md:w-full
+    max-w-sm
+    sm:max-w-md
+    md:max-w-lg
+    rounded-lg
+    shadow-xl
+    p-4 sm:p-6
+    space-y-6
+    max-h-[80vh]
+    overflow-y-auto
+    animate-fadeIn">
         <h2 className="text-xl font-semibold text-gray-800">Add-Ons</h2>
 
         {/* Add-on Type Selector */}

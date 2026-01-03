@@ -207,20 +207,31 @@ const Portfolio: React.FC = () => {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl space-y-4 sm:space-y-6">
 
             {/* === Account Info === */}
-            <div className="p-3 sm:p-4 bg-white rounded-2xl shadow-md relative">
-              <button type="button" onClick={() => openUserProfile()} className="absolute top-3 right-3 sm:static flex items-center gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-gray-100 transition text-xs sm:text-sm whitespace-nowrap">
-                <span className="font-medium text-gray-600">Manage</span>
-                <Settings className="hidden sm:block w-5 h-5 text-gray-600" />
-                <Settings className="sm:hidden w-4 h-4 text-gray-600" />
-              </button>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
-                <img src={user?.imageUrl} alt="Profile" className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-gray-200" />
-                <div className="flex-1">
-                  <p className="text-gray-600 text-xs sm:text-sm">{dbUser.email}</p>
-                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">{dbUser.firstName} {dbUser.lastName}</h2>
-                </div>
-              </div>
-            </div>
+            <div className="p-4 bg-white rounded-2xl shadow-md border border-gray-200 flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+                          <img
+                            src={user?.imageUrl}
+                            alt="Profile"
+                            className="w-20 h-20 rounded-full border-2 border-gray-200"
+                          />
+            
+                          <div className="flex-1">
+                            <p className="text-gray-600 text-sm">{dbUser.email}</p>
+                            <h2 className="text-lg font-semibold text-gray-900">
+                              {dbUser.firstName} {dbUser.lastName}
+                            </h2>
+                          </div>
+            
+                          <button
+                            onClick={() => openUserProfile()}
+                            className="md:ml-auto flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 hover:bg-gray-200 transition w-full md:w-auto justify-center md:justify-start"
+                            aria-label="Manage Account"
+                          >
+                            <span className="text-sm font-medium text-gray-600">
+                              Manage Account
+                            </span>
+                            <Settings className="w-5 h-5 text-gray-600" />
+                          </button>
+                        </div>
 
             {/* === Contact Info === */}
             <div className="p-3 sm:p-6 bg-white rounded-2xl shadow-md relative">

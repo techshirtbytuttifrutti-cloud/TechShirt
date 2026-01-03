@@ -88,25 +88,26 @@ const PrintPricing: React.FC = () => {
   return (
     <div className="p-6 bg-gradient-to-br from-white to-gray-50 shadow rounded-xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-700">Print Types</h2>
-          <p className="text-gray-600 text-sm">Manage available print type</p>
-        </div>
-        <button
-          onClick={() => {
-            setEditingPrint(null);
-            setFormData({ print_type: "Sublimation", description: "", recommended_for: "" });
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium"
-        >
-          <Plus className="h-4 w-4" /> Add Print Type
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-700">Print Types</h2>
+        <p className="text-gray-600 text-sm">Manage available print type</p>
       </div>
 
+      <button
+        onClick={() => {
+          setEditingPrint(null);
+          setFormData({ print_type: "Sublimation", description: "", recommended_for: "" });
+          setIsModalOpen(true);
+        }}
+        className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium w-full sm:w-auto"
+      >
+        <Plus className="h-4 w-4" /> Add Print Type
+      </button>
+    </div>
+
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className=" hidden md:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {localPrints.length === 0 ? (
           <div className="p-6 text-center">
             <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
@@ -166,6 +167,65 @@ const PrintPricing: React.FC = () => {
           </div>
         )}
       </div>
+
+      <div className="md:hidden space-y-4">
+      {localPrints.length === 0 ? (
+        <div className="p-6 text-center bg-white rounded-lg border">
+          <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-600 text-sm">No available print type found</p>
+        </div>
+      ) : (
+        localPrints.map((print) => (
+          <div
+            key={print._id}
+            className="bg-white border rounded-xl p-4 shadow-sm"
+          >
+            {/* Header */}
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-gray-900 text-sm">
+                  {print.print_type || "Unnamed Print"}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {print.recommended_for || "No recommended fabric"}
+                </p>
+              </div>
+            </div>
+
+            {/* Description */}
+            {print.description && (
+              <p className="text-sm text-gray-700 mt-3">
+                {print.description}
+              </p>
+            )}
+
+            {/* Meta */}
+            <p className="text-xs text-gray-500 mt-3">
+              Created: {new Date(print.created_at).toLocaleDateString()}
+            </p>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => handleEdit(print)}
+                className="flex-1 flex items-center justify-center gap-2 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg"
+              >
+                <Edit className="h-4 w-4" />
+                Edit
+              </button>
+
+              <button
+                onClick={() => handleDelete(print._id)}
+                className="flex-1 flex items-center justify-center gap-2 py-2 text-sm bg-red-50 text-red-600 rounded-lg"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
 
       {/* Modal */}
       {isModalOpen && (

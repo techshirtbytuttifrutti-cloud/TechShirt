@@ -129,7 +129,7 @@ const TemplateUploader: React.FC = () => {
   };
 
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-md mb-6">
+    <div className="bg-white p-6 rounded-2xl shadow-md mb-6 ">
       <div className="flex items-center mb-6">
         <Upload className="text-teal-500 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-900">

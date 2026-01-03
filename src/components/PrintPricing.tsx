@@ -203,16 +203,15 @@ const PrintPricing: React.FC = () => {
   return (
     <div className="p-6 bg-gradient-to-br from-white to-gray-50 shadow rounded-xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-700">Pricing of Prints</h2>
-          <p className="text-gray-600 text-sm">Setup pricing per print, shirt type & size</p>
-        </div>
-       
-      </div>
+      <div className="mb-4">
+      <h2 className="text-2xl font-bold text-gray-700">Pricing of Prints</h2>
+      <p className="text-gray-600 text-sm">
+        Setup pricing per print, shirt type & size
+      </p>
+    </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="hidden md:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -319,6 +318,94 @@ const PrintPricing: React.FC = () => {
         </div>
       </div>
 
+
+      <div className="md:hidden space-y-4">
+      {/* Default Pricing */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">Default Pricing</p>
+            <p className="text-xs text-gray-600 mt-1">
+              Applies when no specific pricing is set
+            </p>
+          </div>
+          <button
+            onClick={openDefaultModal}
+            className="text-teal-600 text-sm font-medium flex items-center gap-1"
+          >
+            {getDefaultPricing() ? <Edit className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {getDefaultPricing() ? "Edit" : "Set"}
+          </button>
+        </div>
+
+        <p className="mt-3 text-lg font-semibold">
+          {getDefaultPricing()?.amount
+            ? `₱${getDefaultPricing()?.amount.toLocaleString()}`
+            : "—"}
+        </p>
+      </div>
+
+      {/* Other Pricing Cards */}
+      {localRows
+        .filter((r) => r.print_id !== "default")
+        .map((row) => {
+          const printName = getPrintName(row.print_id);
+          const shirtName = getShirtTypeName(row.shirt_type);
+          const sizeObj = getSizeObj(row.size);
+
+          return (
+            <div
+              key={String(row._id)}
+              className="bg-white border rounded-xl p-4 shadow-sm"
+            >
+              <div className="space-y-1">
+                <p className="font-semibold text-gray-900 text-sm">
+                  {printName}
+                </p>
+                <p className="text-sm text-gray-700">
+                  {shirtName}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {sizeObj?.size_label} ({sizeObj?.category})
+                </p>
+              </div>
+
+              <div className="mt-3 flex justify-between items-center">
+                <p className="text-lg font-semibold">
+                  {row.amount ? `₱${row.amount.toLocaleString()}` : "—"}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {row.created_at
+                    ? new Date(row.created_at).toLocaleDateString()
+                    : "-"}
+                </p>
+              </div>
+
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => handleEdit(row)}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg"
+                >
+                  {row.amount === 0 ? (
+                    <Plus className="h-4 w-4" />
+                  ) : (
+                    <Edit className="h-4 w-4" />
+                  )}
+                  {row.amount === 0 ? "Set" : "Edit"}
+                </button>
+
+                <button
+                  onClick={() => handleDelete(row._id)}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 text-sm bg-red-50 text-red-600 rounded-lg"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+              </div>
+            </div>
+          );
+        })}
+    </div>
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 px-4">

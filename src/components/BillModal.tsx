@@ -115,7 +115,18 @@ const latestNegotiatedAmount = latestNegotiation?.amount ?? null;
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full overflow-y-auto max-h-[80vh]"
+        className="  bg-white
+    rounded-2xl
+    shadow-xl
+    w-[92%]
+    sm:w-[90%]
+    md:w-full
+    max-w-sm
+    sm:max-w-lg
+    md:max-w-2xl
+    p-4 sm:p-6 md:p-8
+    overflow-y-auto
+    max-h-[80vh]"
         initial={{ scale: 0.9 }}
         animate={{ scale: 1 }}
         exit={{ scale: 0.9 }}

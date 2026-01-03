@@ -64,7 +64,15 @@ export default function AddOnsHistoryModal({
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto"
+        className="  bg-white rounded-2xl shadow-xl
+    w-[92%]
+    sm:w-[90%]
+    md:w-full
+    max-w-sm
+    sm:max-w-md
+    md:max-w-lg
+    max-h-[80vh]
+    overflow-y-auto"
         initial={{ scale: 0.95 }}
         animate={{ scale: 1 }}
       >

@@ -100,7 +100,7 @@ const AddTemplateModal: React.FC<AddTemplateModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-      <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-lg relative">
+      <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-[90%] relative">
         <button
           aria-label="Close"
           onClick={onClose}

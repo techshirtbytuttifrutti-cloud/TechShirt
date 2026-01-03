@@ -107,7 +107,7 @@ const PricingManager: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="hidden md:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {Object.keys(groupedPricings).length === 0 && !defaultPricing ? (
           <div className="p-6 text-center">
             <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
@@ -232,6 +232,120 @@ const PricingManager: React.FC = () => {
           </div>
         )}
       </div>
+      <div className="md:hidden space-y-4">
+      {/* Default Pricing Card */}
+      {defaultPricing && (
+        <div className="border rounded-xl p-4 bg-blue-50 shadow-sm">
+          <div className="flex justify-between items-start mb-2">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Default Pricing</p>
+              <p className="text-xs text-gray-500">
+                {defaultPricing.description || "No description"}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm mt-3">
+            <div>
+              <p className="text-xs text-gray-500">Designer Fee</p>
+              <p className="font-medium">
+                {defaultPricing.normal_amount
+                  ? `₱${defaultPricing.normal_amount.toLocaleString()}`
+                  : "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Revision Fee</p>
+              <p className="font-medium">
+                {defaultPricing.revision_fee
+                  ? `₱${defaultPricing.revision_fee.toLocaleString()}`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => handleEdit(defaultPricing)}
+            className="mt-4 w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2 rounded-lg text-sm"
+          >
+            <Edit className="h-4 w-4" />
+            Edit Pricing
+          </button>
+        </div>
+      )}
+
+      {/* Designer Pricing Cards */}
+      {Object.entries(groupedPricings)
+        .filter(([id]) => id !== "default")
+        .map(([designerId, pricings]) => {
+          const designer = designers.find((d) => d._id === designerId);
+
+          return pricings.map((pricing) => {
+            const isUnset = !pricing.normal_amount || pricing.normal_amount === 0;
+
+            return (
+              <div
+                key={pricing._id}
+                className="border rounded-xl p-4 bg-white shadow-sm"
+              >
+                <div className="mb-2">
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {designer
+                      ? `${designer.firstName} ${designer.lastName}`
+                      : "Unknown Designer"}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {pricing.description || "No description"}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm mt-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Designer Fee</p>
+                    <p className="font-medium">
+                      {pricing.normal_amount
+                        ? `₱${pricing.normal_amount.toLocaleString()}`
+                        : "—"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-gray-500">Revision Fee</p>
+                    <p className="font-medium">
+                      {pricing.revision_fee
+                        ? `₱${pricing.revision_fee.toLocaleString()}`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleEdit(pricing)}
+                  className={`mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm ${
+                    isUnset
+                      ? "bg-green-100 text-green-700"
+                      : "bg-teal-600 text-white"
+                  }`}
+                >
+                  {isUnset ? (
+                    <>
+                      <Plus className="h-4 w-4" />
+                      Set Up Pricing
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="h-4 w-4" />
+                      Edit Pricing
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          });
+        })}
+    </div>
+
 
       {/* Edit Modal */}
       {isModalOpen && editingPricing && (

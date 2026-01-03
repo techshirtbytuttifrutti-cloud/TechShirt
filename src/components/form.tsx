@@ -295,7 +295,16 @@ const ShirtDesignForm: React.FC<ShirtDesignFormProps> = ({ onClose, onSubmit }) 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="w-full max-w-4xl p-6 bg-white rounded-lg shadow-2xl"
+        className="  w-[95%]
+  sm:w-[90%]
+  md:w-full
+  max-w-md
+  md:max-w-3xl
+  lg:max-w-4xl
+  p-4 sm:p-6
+  bg-white
+  rounded-lg
+  shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b">

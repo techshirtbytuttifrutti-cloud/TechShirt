@@ -32,10 +32,7 @@ const UserDesignModal: React.FC<UserDesignModalProps> = ({ requestId, onClose })
   // Inside the component, after fetching `design`:
 
 // ✅ Only fetch billing if design exists
-const billing = useQuery(
-  api.billing.getBillingByDesign,
-  design ? { designId: design._id } : "skip"
-);
+
   const [showNeededStockModal, setShowNeededStockModal] = useState(false);
 
   const totalSteps = 3;
@@ -53,7 +50,7 @@ const billing = useQuery(
 
   const renderActionButton = () => {
     // Only show Start Production if design exists and bill is approved
- if (billing?.status === "approved") {
+ if (design.status === "approved") {
       return (
         <button
           type="button"
